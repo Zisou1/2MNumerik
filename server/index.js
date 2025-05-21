@@ -20,6 +20,7 @@ connection.connect((err) => {
     return;
   }
   console.log('Connected to the database');
+  
 });
 const PORT=process.env.PORT || 5000;
 app.listen(PORT, () => {
