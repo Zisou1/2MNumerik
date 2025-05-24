@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import logoPrimary from '../assets/logoprimary.png'
+import Input from '../components/InputComponent'
+import Button from '../components/ButtonComponent'
 
 function LoginPage({ onLogin }) {
   const [username, setUsername] = useState('')
@@ -10,7 +13,7 @@ function LoginPage({ onLogin }) {
     
     // Simple validation
     if (!username || !password) {
-      setError('Please enter both username and password')
+      setError('Veuillez saisir votre nom d\'utilisateur et votre mot de passe')
       return
     }
     
@@ -19,57 +22,58 @@ function LoginPage({ onLogin }) {
     if (username === 'user' && password === 'password') {
       onLogin()
     } else {
-      setError('Invalid username or password')
+      setError('Nom d\'utilisateur ou mot de passe invalide')
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full p-6 bg-white rounded-lg shadow-lg">
-        <h2 className="text-2xl font-bold text-center mb-6">Login</h2>
-        
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
+    <div className="min-h-screen bg-gray-50">
+      {/* Blue Header Bar */}
+      <header className="bg-[#00AABB] text-white py-4 px-6  ">
+      </header>
+      
+      {/* Login Form */}
+      <div className="flex items-center justify-center h-[calc(100vh-64px)]">
+        <div className="max-w-xl w-full p-6 bg-white rounded-3xl shadow-lg">
+          <div className='flex justify-center m-8'> 
+            <img src={logoPrimary} alt="" />
           </div>
-        )}
-        
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="username">
-              Username
-            </label>
-            <input
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500"
+          
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+              {error}
+            </div>
+          )}
+          
+          <form onSubmit={handleSubmit}>
+            <Input
+              label="Nom d'utilisateur"
               type="text"
               id="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter your username"
+              placeholder="Saisissez votre nom d'utilisateur"
             />
-          </div>
-          
-          <div className="mb-6">
-            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
-              Password
-            </label>
-            <input
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500"
+            
+            <Input
+              label="Mot de passe"
               type="password"
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
+              placeholder="Saisissez votre mot de passe"
+              className="mb-6"
             />
-          </div>
-          
-          <button
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
-            type="submit"
-          >
-            Log In
-          </button>
-        </form>
+            
+            <Button type="submit">
+              Se connecter
+            </Button>
+            
+            <p className='text-xs text-gray-500 mt-2 px-4'>
+              Si vous avez oublié votre mot de passe, contactez votre responsable pour le réinitialiser
+            </p>
+          </form>
+        </div>
       </div>
     </div>
   )
