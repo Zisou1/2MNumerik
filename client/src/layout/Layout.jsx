@@ -28,7 +28,7 @@ function Layout({ onLogout }) {
             onClick={onLogout}
             className="bg-[#00AABB] hover:bg-red-600 text-white px-4 py-2 rounded"
           >
-            Logout
+            Déconnexion
           </button>
         </div>
       </nav>
