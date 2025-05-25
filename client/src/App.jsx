@@ -5,15 +5,20 @@ import HomePage from './pages/HomePage'
 import Layout from './layout/Layout'
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
+ const [isLoggedIn, setIsLoggedIn] = useState(() => {
+  return localStorage.getItem('isLoggedIn') === 'true'
+})
 
-  const handleLogin = () => {
-    setIsLoggedIn(true)
-  }
-  const handleLogout = () => {
-    setIsLoggedIn(false)
-  }
+const handleLogin = () => {
+  setIsLoggedIn(true)
+  localStorage.setItem('isLoggedIn', 'true')
+}
 
+const handleLogout = () => {
+  setIsLoggedIn(false)
+  localStorage.removeItem('isLoggedIn')
+}
+console.log('App component rendered - isLoggedIn:', isLoggedIn)
   return (
     <Router>
       <Routes>
