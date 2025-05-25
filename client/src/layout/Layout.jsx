@@ -143,12 +143,12 @@ function Layout({ onLogout }) {
           </nav>
         </aside>
 
-        {/* Main Content */}
+       
+      </div>
+ {/* Main Content */}
         <main className={`flex-1 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} max-w-7xl mx-auto p-4 transition-all duration-300`}>
           <Outlet /> {/* This renders the child routes */}
         </main>
-      </div>
-
       
     </div>
   )
