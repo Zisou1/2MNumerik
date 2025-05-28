@@ -1,28 +1,60 @@
 import { useState } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import logoPrimary from '../assets/logoprimary.png'
 import Input from '../components/InputComponent'
 import Button from '../components/ButtonComponent'
 
 function LoginPage({ onLogin }) {
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const navigate = useNavigate()
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     
     // Simple validation
-    if (!username || !password) {
-      setError('Veuillez saisir votre nom d\'utilisateur et votre mot de passe')
+    if (!email || !password) {
+      setError('Veuillez saisir votre email et votre mot de passe')
       return
     }
     
-    // Here you would typically make an API call to verify credentials
-    // For this example, we'll just simulate a successful login
-    if (username === 'user' && password === 'password') {
-      onLogin()
-    } else {
-      setError('Nom d\'utilisateur ou mot de passe invalide')
+    setIsLoading(true)
+    setError('')
+    
+    try {
+      const response = await fetch('http://localhost:3001/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Include cookies in the request
+        body: JSON.stringify({ email, password }),
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        // No need to store token in localStorage anymore
+        // The token is now stored in HTTP-only cookies
+        
+        // Store user info in localStorage (without sensitive data)
+        localStorage.setItem('user', JSON.stringify(data.user))
+        
+        // Call the onLogin callback
+        onLogin()
+        
+        // Navigate to dashboard or wherever needed
+        navigate('/')
+      } else {
+        setError(data.message || 'Erreur lors de la connexion')
+      }
+    } catch (error) {
+      console.error('Login error:', error)
+      setError('Erreur de connexion au serveur')
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -46,12 +78,13 @@ function LoginPage({ onLogin }) {
           
           <form onSubmit={handleSubmit}>
             <Input
-              label="Nom d'utilisateur"
-              type="text"
-              id="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Saisissez votre nom d'utilisateur"
+              label="Email"
+              type="email"
+              id="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Saisissez votre email"
+              disabled={isLoading}
             />
             
             <Input
@@ -62,14 +95,22 @@ function LoginPage({ onLogin }) {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Saisissez votre mot de passe"
               className="mb-6"
+              disabled={isLoading}
             />
             
-            <Button type="submit">
-              Se connecter
+            <Button type="submit" disabled={isLoading}>
+              {isLoading ? 'Connexion...' : 'Se connecter'}
             </Button>
             
             <p className='text-xs text-gray-500 mt-2 px-4'>
               Si vous avez oublié votre mot de passe, contactez votre responsable pour le réinitialiser
+            </p>
+            
+            <p className='text-sm text-center mt-4'>
+              Pas de compte ?{' '}
+              <Link to="/register" className="text-[#00AABB] hover:underline">
+                S'inscrire
+              </Link>
             </p>
           </form>
         </div>
