@@ -7,6 +7,8 @@ const { initializeDatabase } = require('./config/database');
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
+const orderRoutes = require('./routes/orderRoutes');
+const productRoutes = require('./routes/productRoutes');
 
 const app = express();
 
@@ -26,6 +28,8 @@ app.get('/api', (req, res) => {
 // Routes
 app.use('/api', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/products', productRoutes);
 
 // Initialize database and start server
 const startServer = async () => {

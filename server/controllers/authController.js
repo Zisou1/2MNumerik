@@ -1,11 +1,12 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const { getUser } = require('../config/database');
 
 class AuthController {
   // Register a new user
   static async register(req, res) {
     try {
       const { username, email, password } = req.body;
+      const User = getUser();
 
       // Check if user already exists
       const existingUser = await User.findByEmailOrUsername(email, username);
@@ -38,7 +39,7 @@ class AuthController {
 
       res.status(201).json({
         message: 'Inscription réussie',
-        user: newUser
+        user: newUser.toJSON()
       });
     } catch (error) {
       console.error('Registration error:', error);
@@ -50,9 +51,10 @@ class AuthController {
   static async login(req, res) {
     try {
       const { email, password } = req.body;
+      const User = getUser();
 
       // Find user by email
-      const user = await User.findByEmail(email);
+      const user = await User.findOne({ where: { email } });
       if (!user) {
         return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
       }

@@ -1,144 +1,74 @@
-const { getConnection } = require('../config/database');
+const { DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
 
-class User {
-  constructor(userData) {
-    this.id = userData.id;
-    this.username = userData.username;
-    this.email = userData.email;
-    this.password = userData.password;
-    this.created_at = userData.created_at;
-  }
+module.exports = (sequelize) => {
+  const User = sequelize.define('User', {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
+    username: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      unique: true
+    },
+    email: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+      unique: true,
+      validate: {
+        isEmail: true
+      }
+    },
+    password: {
+      type: DataTypes.STRING(255),
+      allowNull: false
+    },
+    role: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: 'user'
+    }
+  }, {
+    tableName: 'users',
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: false,
+    hooks: {
+      beforeCreate: async (user) => {
+        if (user.password) {
+          const saltRounds = 10;
+          user.password = await bcrypt.hash(user.password, saltRounds);
+        }
+      }
+    }
+  });
 
-  // Create a new user
-  static async create(userData) {
-    const { username, email, password } = userData;
-    const connection = getConnection();
-    
-    return new Promise(async (resolve, reject) => {
-      try {
-        // Hash password
-        const saltRounds = 10;
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
-        
-        // Insert new user
-        const insertUserQuery = 'INSERT INTO users (username, email, password) VALUES (?, ?, ?)';
-        connection.query(insertUserQuery, [username, email, hashedPassword], (err, results) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          
-          resolve({
-            id: results.insertId,
-            username,
-            email
-          });
-        });
-      } catch (error) {
-        reject(error);
+  // Instance method to verify password
+  User.prototype.verifyPassword = async function(plainPassword) {
+    return await bcrypt.compare(plainPassword, this.password);
+  };
+
+  // Instance method to get user data without password
+  User.prototype.toJSON = function() {
+    const values = Object.assign({}, this.get());
+    delete values.password;
+    return values;
+  };
+
+  // Static method to find user by email or username
+  User.findByEmailOrUsername = async function(email, username) {
+    const { Op } = require('sequelize');
+    return await User.findOne({
+      where: {
+        [Op.or]: [
+          { email: email },
+          { username: username }
+        ]
       }
     });
-  }
+  };
 
-  // Find user by email
-  static async findByEmail(email) {
-    const connection = getConnection();
-    
-    return new Promise((resolve, reject) => {
-      const query = 'SELECT * FROM users WHERE email = ?';
-      connection.query(query, [email], (err, results) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        if (results.length === 0) {
-          resolve(null);
-          return;
-        }
-        
-        resolve(new User(results[0]));
-      });
-    });
-  }
-
-  // Find user by username
-  static async findByUsername(username) {
-    const connection = getConnection();
-    
-    return new Promise((resolve, reject) => {
-      const query = 'SELECT * FROM users WHERE username = ?';
-      connection.query(query, [username], (err, results) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        if (results.length === 0) {
-          resolve(null);
-          return;
-        }
-        
-        resolve(new User(results[0]));
-      });
-    });
-  }
-
-  // Find user by email or username
-  static async findByEmailOrUsername(email, username) {
-    const connection = getConnection();
-    
-    return new Promise((resolve, reject) => {
-      const query = 'SELECT * FROM users WHERE email = ? OR username = ?';
-      connection.query(query, [email, username], (err, results) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        if (results.length === 0) {
-          resolve(null);
-          return;
-        }
-        
-        resolve(new User(results[0]));
-      });
-    });
-  }
-
-  // Find user by ID
-  static async findById(id) {
-    const connection = getConnection();
-    
-    return new Promise((resolve, reject) => {
-      const query = 'SELECT * FROM users WHERE id = ?';
-      connection.query(query, [id], (err, results) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        if (results.length === 0) {
-          resolve(null);
-          return;
-        }
-        
-        resolve(new User(results[0]));
-      });
-    });
-  }
-
-  // Verify password
-  async verifyPassword(plainPassword) {
-    return await bcrypt.compare(plainPassword, this.password);
-  }
-
-  // Get user data without password
-  toJSON() {
-    const { password, ...userWithoutPassword } = this;
-    return userWithoutPassword;
-  }
-}
-
-module.exports = User;
+  return User;
+};

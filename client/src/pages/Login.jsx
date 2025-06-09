@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import logoPrimary from '../assets/logoprimary.png'
 import Input from '../components/InputComponent'
 import Button from '../components/ButtonComponent'
 
-function LoginPage({ onLogin }) {
+function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const navigate = useNavigate()
+  const { login } = useAuth()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -24,35 +26,11 @@ function LoginPage({ onLogin }) {
     setError('')
     
     try {
-      const response = await fetch('http://localhost:3001/api/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Include cookies in the request
-        body: JSON.stringify({ email, password }),
-      })
-      
-      const data = await response.json()
-      
-      if (response.ok) {
-        // No need to store token in localStorage anymore
-        // The token is now stored in HTTP-only cookies
-        
-        // Store user info in localStorage (without sensitive data)
-        localStorage.setItem('user', JSON.stringify(data.user))
-        
-        // Call the onLogin callback
-        onLogin()
-        
-        // Navigate to dashboard or wherever needed
-        navigate('/')
-      } else {
-        setError(data.message || 'Erreur lors de la connexion')
-      }
+      await login({ email, password })
+      navigate('/')
     } catch (error) {
       console.error('Login error:', error)
-      setError('Erreur de connexion au serveur')
+      setError(error.message || 'Erreur de connexion au serveur')
     } finally {
       setIsLoading(false)
     }

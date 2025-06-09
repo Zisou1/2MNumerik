@@ -49,6 +49,20 @@ export const userAPI = {
   
   getUser: (id) => apiCall(`/users/${id}`),
   
+  createUser: (userData) => apiCall('/users', {
+    method: 'POST',
+    body: JSON.stringify(userData),
+  }),
+  
+  updateUser: (id, userData) => apiCall(`/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(userData),
+  }),
+  
+  deleteUser: (id) => apiCall(`/users/${id}`, {
+    method: 'DELETE',
+  }),
+  
   updateProfile: (userData) => apiCall('/users/profile', {
     method: 'PUT',
     body: JSON.stringify(userData),
@@ -59,4 +73,51 @@ export const userAPI = {
   }),
 }
 
-export default { apiCall, authAPI, userAPI }
+// Order API calls
+export const orderAPI = {
+  getOrders: (params = {}) => {
+    const searchParams = new URLSearchParams(params);
+    return apiCall(`/orders?${searchParams}`);
+  },
+  
+  getOrder: (id) => apiCall(`/orders/${id}`),
+  
+  createOrder: (orderData) => apiCall('/orders', {
+    method: 'POST',
+    body: JSON.stringify(orderData),
+  }),
+  
+  updateOrder: (id, orderData) => apiCall(`/orders/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(orderData),
+  }),
+  
+  deleteOrder: (id) => apiCall(`/orders/${id}`, {
+    method: 'DELETE',
+  }),
+  
+  getOrderStats: () => apiCall('/orders/stats'),
+}
+
+// Product API calls
+export const productAPI = {
+  getProducts: () => apiCall('/products'),
+  
+  getProduct: (id) => apiCall(`/products/${id}`),
+  
+  createProduct: (productData) => apiCall('/products', {
+    method: 'POST',
+    body: JSON.stringify(productData),
+  }),
+  
+  updateProduct: (id, productData) => apiCall(`/products/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(productData),
+  }),
+  
+  deleteProduct: (id) => apiCall(`/products/${id}`, {
+    method: 'DELETE',
+  }),
+}
+
+export default { apiCall, authAPI, userAPI, orderAPI, productAPI }

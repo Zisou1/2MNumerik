@@ -1,12 +1,11 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const { getUser, getSequelize } = require('../config/database');
 
 // Middleware to check database connection
 const checkConnection = (req, res, next) => {
   try {
-    const { getConnection } = require('../config/database');
-    const connection = getConnection();
-    if (!connection) {
+    const sequelize = getSequelize();
+    if (!sequelize) {
       return res.status(500).json({ message: 'Base de données non disponible' });
     }
     next();
@@ -25,7 +24,8 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    const user = await User.findById(decoded.userId);
+    const User = getUser();
+    const user = await User.findByPk(decoded.userId);
     
     if (!user) {
       return res.status(401).json({ message: 'Utilisateur non trouvé' });

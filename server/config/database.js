@@ -1,88 +1,55 @@
 require('dotenv').config();
-const mysql = require('mysql2');
+const { Sequelize } = require('sequelize');
+const models = require('../models');
 
-let connection;
+let sequelize;
 
-const initializeDatabase = () => {
-  return new Promise((resolve, reject) => {
-    // First connect without specifying a database
-    const initialConnection = mysql.createConnection({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD
-    });
+const initializeDatabase = async () => {
+  try {
+    // Use the models/index.js sequelize instance
+    sequelize = models.sequelize;
 
-    // Check if database exists, if not create it
-    initialConnection.connect((err) => {
-      if (err) {
-        console.error('Error connecting to the database server:', err);
-        reject(err);
-        return;
-      }
-      console.log('Connected to the database server');
-      
-      // Try to create the database if it doesn't exist
-      initialConnection.query('CREATE DATABASE IF NOT EXISTS 2MNumerik', (err) => {
-        if (err) {
-          console.error('Error creating database:', err);
-          reject(err);
-          return;
-        }
-        console.log('Database checked/created successfully');
-        
-        // Close the initial connection
-        initialConnection.end();
-        
-        // Connect to the specific database
-        connection = mysql.createConnection({
-          host: process.env.DB_HOST,
-          user: process.env.DB_USER,
-          password: process.env.DB_PASSWORD,
-          database: '2MNumerik'
-        });
-        
-        connection.connect((err) => {
-          if (err) {
-            console.error('Error connecting to the database:', err);
-            reject(err);
-            return;
-          }
-          console.log('Connected to the 2mnumerik database');
-          
-          // Create users table if it doesn't exist
-          const createUsersTable = `
-            CREATE TABLE IF NOT EXISTS users (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              username VARCHAR(50) UNIQUE NOT NULL,
-              email VARCHAR(100) UNIQUE NOT NULL,
-              password VARCHAR(255) NOT NULL,
-              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-          `;
-          
-          connection.query(createUsersTable, (err) => {
-            if (err) {
-              console.error('Error creating users table:', err);
-              reject(err);
-            } else {
-              console.log('Users table checked/created successfully');
-              resolve(connection);
-            }
-          });
-        });
-      });
-    });
-  });
+    // Test the connection
+    await sequelize.authenticate();
+    console.log('Connected to 2MNumerik database');
+
+    // Note: Don't use sync() in production, use migrations instead
+    // await sequelize.sync({ alter: false });
+    console.log('Database ready - use migrations for schema changes');
+    
+    return sequelize;
+  } catch (error) {
+    console.error('Database initialization failed:', error);
+    throw error;
+  }
 };
 
-const getConnection = () => {
-  if (!connection) {
-    throw new Error('Database not initialized. Call initializeDatabase() first.');
+const getSequelize = () => {
+  if (!sequelize) {
+    return models.sequelize;
   }
-  return connection;
+  return sequelize;
+};
+
+const getUser = () => {
+  return models.User;
+};
+
+const getOrder = () => {
+  return models.Order;
+};
+
+const closeDatabase = async () => {
+  if (sequelize) {
+    await sequelize.close();
+    console.log('Database connections closed');
+  }
 };
 
 module.exports = {
   initializeDatabase,
-  getConnection
+  getSequelize,
+  getUser,
+  getOrder,
+  closeDatabase
 };

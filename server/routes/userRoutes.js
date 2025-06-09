@@ -9,7 +9,10 @@ router.use(authenticateToken);
 
 // User routes
 router.get('/', UserController.getAllUsers);
+router.post('/', UserController.createUser);
 router.get('/:id', UserController.getUserById);
+router.put('/:id', UserController.updateUser);
+router.delete('/:id', UserController.deleteUser);
 router.put('/profile', UserController.updateProfile);
 router.delete('/account', UserController.deleteAccount);
 

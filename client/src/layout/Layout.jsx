@@ -1,16 +1,44 @@
 import { useState } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation, Link } from 'react-router-dom'
 import logoPrimary from '../assets/logoprimary.png'
+import { useAuth } from '../contexts/AuthContext'
+import AlertDialog from '../components/AlertDialog'
 
 function Layout({ onLogout }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false)
   const location = useLocation()
-
+  const { user } = useAuth()
   const isActive = (path) => location.pathname === path
+
+  const handleLogoutClick = () => {
+    setShowLogoutDialog(true)
+  }
+
+  const handleLogoutConfirm = () => {
+    setShowLogoutDialog(false)
+    onLogout()
+  }
+
+  const handleLogoutCancel = () => {
+    setShowLogoutDialog(false)
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Alert Dialog */}
+      <AlertDialog
+        isOpen={showLogoutDialog}
+        onClose={handleLogoutCancel}
+        onConfirm={handleLogoutConfirm}
+        title="Confirmation de déconnexion"
+        message="Êtes-vous sûr de vouloir vous déconnecter ?"
+        confirmText="Se déconnecter"
+        cancelText="Annuler"
+        type="danger"
+      />
+
       {/* Navbar */}
       <nav className="bg-white shadow-md px-6 py-4 fixed top-0 left-0 right-0 z-40">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
@@ -24,12 +52,6 @@ function Layout({ onLogout }) {
               </svg>
             </button>
           </div>
-          <button
-            onClick={onLogout}
-            className="bg-[#00AABB] hover:bg-red-600 text-white px-4 py-2 rounded"
-          >
-            Déconnexion
-          </button>
         </div>
       </nav>
 
@@ -52,13 +74,13 @@ function Layout({ onLogout }) {
               </button>
               
               {/* Logo */}
-              <a href="#" className="hidden md:flex justify-center">
+              <Link to="/" className="hidden md:flex justify-center">
                 <img 
                   src={logoPrimary} 
                   alt="" 
                   className={`${sidebarCollapsed ? 'md:w-8 md:h-4' : 'md:w-32 md:h-16'} w-32 h-16 transition-all duration-300`}
                 />
-              </a>
+              </Link>
               
               {/* Desktop hamburger menu for sidebar collapse */}
               <button
@@ -74,8 +96,20 @@ function Layout({ onLogout }) {
             {/* Main navigation items */}
             <ul className="space-y-2 flex-1">
               <li>
-                <a href="/" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                <Link to="/" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
                   isActive('/') 
+                    ? 'bg-[#00AABB] text-white' 
+                    : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
+                }`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Accueil</span>
+              </Link>
+              </li>
+              <li>
+                <Link to="/dashboard" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                  isActive('/dashboard') 
                     ? 'bg-[#00AABB] text-white' 
                     : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
                 }`}>
@@ -84,22 +118,42 @@ function Layout({ onLogout }) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 21l4-4 4 4" />
                   </svg>
                   <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Dashboard</span>
-                </a>
+                </Link>
               </li>
               <li>
-                <a href="/profile" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
-                  isActive('/profile') 
+                <Link to="/products" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                  isActive('/products') 
+                    ? 'bg-[#00AABB] text-white' 
+                    : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
+                }`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Products</span>
+                </Link>
+              </li>
+                {user?.role==='admin' &&(
+                   <li>
+                <Link to="/management" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                  isActive('/management') 
                     ? 'bg-[#00AABB] text-white' 
                     : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
                 }`}>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Profile</span>
-                </a>
+                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Management</span>
+                </Link>
               </li>
+                )}
+             
+              
+            </ul>
+
+            {/* Bottom navigation items */}
+            <ul className="space-y-2 mt-4">
               <li>
-                <a href="/settings" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                <Link to="/settings" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
                   isActive('/settings') 
                     ? 'bg-[#00AABB] text-white' 
                     : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
@@ -109,36 +163,19 @@ function Layout({ onLogout }) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Settings</span>
-                </a>
+                </Link>
               </li>
-            </ul>
-
-            {/* Bottom navigation items */}
-            <ul className="space-y-2 mt-4">
-              <li>
-                <a href="/help" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
-                  isActive('/help') 
-                    ? 'bg-[#00AABB] text-white' 
-                    : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
-                }`}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Help</span>
-                </a>
-              </li>
-              <li>
-                <a href="/about" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
-                  isActive('/about') 
-                    ? 'bg-[#00AABB] text-white' 
-                    : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
-                }`}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>About</span>
-                </a>
-              </li>
+             <li>
+  <button 
+    onClick={handleLogoutClick}
+    className={`w-full flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} text-gray-700 hover:bg-[#00AABB] hover:text-white`}
+  >
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    </svg>
+    <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Déconnexion</span>
+  </button>
+</li>
             </ul>
           </nav>
         </aside>
@@ -146,7 +183,7 @@ function Layout({ onLogout }) {
        
       </div>
  {/* Main Content */}
-        <main className={`flex-1 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} max-w-7xl mx-auto p-4 transition-all duration-300`}>
+        <main className={`flex-1 ${sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'} max-w-full mx-auto p-4 transition-all duration-300`}>
           <Outlet /> {/* This renders the child routes */}
         </main>
       

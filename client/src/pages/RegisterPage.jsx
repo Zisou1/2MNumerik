@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import logoPrimary from '../assets/logoprimary.png'
 import Input from '../components/InputComponent'
 import Button from '../components/ButtonComponent'
@@ -12,6 +13,7 @@ const RegisterPage = () => {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { register } = useAuth()
 
   const validateEmail = (email) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -71,32 +73,8 @@ const RegisterPage = () => {
 
     setLoading(true)
     try {
-      const response = await fetch('http://localhost:3001/api/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Include cookies in the request
-        body: JSON.stringify({ username, email, password }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Erreur lors de l\'inscription')
-      }
-
-      // Registration successful
-      console.log('Registration successful:', data)
-      
-      // Store user info in localStorage (without sensitive data)
-      localStorage.setItem('user', JSON.stringify(data.user))
-      
-      // Redirect to login page or dashboard
-      navigate('/login', { 
-        state: { message: 'Inscription réussie ! Vous pouvez maintenant vous connecter.' }
-      })
-      
+      await register({ username, email, password })
+      navigate('/')
     } catch (err) {
       console.error('Registration error:', err)
       
