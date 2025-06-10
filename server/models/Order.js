@@ -28,16 +28,6 @@ module.exports = (sequelize) => {
       allowNull: false,
       comment: 'Nom du client'
     },
-    produit_details: {
-      type: DataTypes.TEXT,
-      allowNull: false,
-      comment: 'Description du produit commandé'
-    },
-    quantite: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      comment: 'Nombre d\'unités commandées'
-    },
     date_limite_livraison_estimee: {
       type: DataTypes.DATE,
       allowNull: true,
@@ -85,6 +75,23 @@ module.exports = (sequelize) => {
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
   });
+
+  // Define associations
+  Order.associate = function(models) {
+    // Order has many products through order_products
+    Order.belongsToMany(models.Product, {
+      through: models.OrderProduct,
+      foreignKey: 'order_id',
+      otherKey: 'product_id',
+      as: 'products'
+    });
+    
+    // Order has many order_products
+    Order.hasMany(models.OrderProduct, {
+      foreignKey: 'order_id',
+      as: 'orderProducts'
+    });
+  };
 
   return Order;
 };

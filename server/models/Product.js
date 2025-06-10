@@ -29,5 +29,22 @@ module.exports = (sequelize) => {
     timestamps: true
   });
 
+  // Define associations
+  Product.associate = function(models) {
+    // Product belongs to many orders through order_products
+    Product.belongsToMany(models.Order, {
+      through: models.OrderProduct,
+      foreignKey: 'product_id',
+      otherKey: 'order_id',
+      as: 'orders'
+    });
+    
+    // Product has many order_products
+    Product.hasMany(models.OrderProduct, {
+      foreignKey: 'product_id',
+      as: 'orderProducts'
+    });
+  };
+
   return Product;
 };

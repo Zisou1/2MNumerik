@@ -1,4 +1,4 @@
-const { getOrder } = require('../config/database');
+const { Order, Product, OrderProduct } = require('../models');
 const { Op, Sequelize } = require('sequelize');
 
 class OrderController {
@@ -18,7 +18,6 @@ class OrderController {
         sortOrder = 'ASC'
       } = req.query;
 
-      const Order = getOrder();
       const offset = (page - 1) * limit;
 
       // Build where clause for filtering
@@ -44,7 +43,17 @@ class OrderController {
         where: whereClause,
         order: orderClause,
         limit: parseInt(limit),
-        offset: parseInt(offset)
+        offset: parseInt(offset),
+        include: [
+          {
+            model: Product,
+            as: 'products',
+            through: {
+              as: 'orderProduct',
+              attributes: ['quantity', 'unit_price']
+            }
+          }
+        ]
       });
 
       res.json({
@@ -68,9 +77,19 @@ class OrderController {
   static async getOrderById(req, res) {
     try {
       const { id } = req.params;
-      const Order = getOrder();
       
-      const order = await Order.findByPk(id);
+      const order = await Order.findByPk(id, {
+        include: [
+          {
+            model: Product,
+            as: 'products',
+            through: {
+              as: 'orderProduct',
+              attributes: ['quantity', 'unit_price']
+            }
+          }
+        ]
+      });
       if (!order) {
         return res.status(404).json({ message: 'Commande non trouvée' });
       }
@@ -87,14 +106,15 @@ class OrderController {
 
   // Create new order
   static async createOrder(req, res) {
+    const transaction = await Order.sequelize.transaction();
+    
     try {
       const {
         commercial_en_charge,
         infographe_en_charge,
         numero_pms,
         client,
-        produit_details,
-        quantite,
+        products, // Array of {productId, quantity, unitPrice?}
         date_limite_livraison_estimee,
         date_limite_livraison_attendue,
         etape,
@@ -104,22 +124,44 @@ class OrderController {
         commentaires
       } = req.body;
 
-      const Order = getOrder();
-
       // Validate required fields
-      if (!commercial_en_charge || !numero_pms || !client || !produit_details || !quantite) {
+      if (!commercial_en_charge || !numero_pms || !client || !products || !Array.isArray(products) || products.length === 0) {
+        await transaction.rollback();
         return res.status(400).json({ 
-          message: 'Les champs commercial, numéro PMS, client, détails produit et quantité sont requis' 
+          message: 'Les champs commercial, numéro PMS, client et produits sont requis' 
         });
       }
 
+      // Validate products array
+      for (const product of products) {
+        if (!product.productId || !product.quantity || product.quantity <= 0) {
+          await transaction.rollback();
+          return res.status(400).json({ 
+            message: 'Chaque produit doit avoir un ID valide et une quantité supérieure à 0' 
+          });
+        }
+      }
+
+      // Check if all products exist
+      const productIds = products.map(p => p.productId);
+      const existingProducts = await Product.findAll({
+        where: { id: productIds },
+        transaction
+      });
+
+      if (existingProducts.length !== productIds.length) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          message: 'Un ou plusieurs produits spécifiés n\'existent pas' 
+        });
+      }
+
+      // Create the order
       const order = await Order.create({
         commercial_en_charge,
         infographe_en_charge,
         numero_pms,
         client,
-        produit_details,
-        quantite,
         date_limite_livraison_estimee: date_limite_livraison_estimee ? new Date(date_limite_livraison_estimee) : null,
         date_limite_livraison_attendue: date_limite_livraison_attendue ? new Date(date_limite_livraison_attendue) : null,
         etape,
@@ -127,13 +169,40 @@ class OrderController {
         atelier_concerne,
         statut,
         commentaires
+      }, { transaction });
+
+      // Create order-product relationships
+      const orderProducts = products.map(product => ({
+        order_id: order.id,
+        product_id: product.productId,
+        quantity: product.quantity,
+        unit_price: product.unitPrice || null
+      }));
+
+      await OrderProduct.bulkCreate(orderProducts, { transaction });
+
+      await transaction.commit();
+
+      // Fetch the complete order with products
+      const completeOrder = await Order.findByPk(order.id, {
+        include: [
+          {
+            model: Product,
+            as: 'products',
+            through: {
+              as: 'orderProduct',
+              attributes: ['quantity', 'unit_price']
+            }
+          }
+        ]
       });
 
       res.status(201).json({
         message: 'Commande créée avec succès',
-        order: order
+        order: completeOrder
       });
     } catch (error) {
+      await transaction.rollback();
       console.error('Create order error:', error);
       if (error.name === 'SequelizeUniqueConstraintError') {
         return res.status(400).json({ message: 'Ce numéro PMS existe déjà' });
@@ -144,6 +213,8 @@ class OrderController {
 
   // Update order
   static async updateOrder(req, res) {
+    const transaction = await Order.sequelize.transaction();
+    
     try {
       const { id } = req.params;
       const {
@@ -151,8 +222,7 @@ class OrderController {
         infographe_en_charge,
         numero_pms,
         client,
-        produit_details,
-        quantite,
+        products, // Array of {productId, quantity, unitPrice?} - optional for updates
         date_limite_livraison_estimee,
         date_limite_livraison_attendue,
         etape,
@@ -162,21 +232,62 @@ class OrderController {
         commentaires
       } = req.body;
 
-      const Order = getOrder();
-      const order = await Order.findByPk(id);
+      const order = await Order.findByPk(id, { transaction });
 
       if (!order) {
+        await transaction.rollback();
         return res.status(404).json({ message: 'Commande non trouvée' });
       }
 
-      // Update fields
+      // If products are being updated
+      if (products && Array.isArray(products)) {
+        // Validate products array
+        for (const product of products) {
+          if (!product.productId || !product.quantity || product.quantity <= 0) {
+            await transaction.rollback();
+            return res.status(400).json({ 
+              message: 'Chaque produit doit avoir un ID valide et une quantité supérieure à 0' 
+            });
+          }
+        }
+
+        // Check if all products exist
+        const productIds = products.map(p => p.productId);
+        const existingProducts = await Product.findAll({
+          where: { id: productIds },
+          transaction
+        });
+
+        if (existingProducts.length !== productIds.length) {
+          await transaction.rollback();
+          return res.status(400).json({ 
+            message: 'Un ou plusieurs produits spécifiés n\'existent pas' 
+          });
+        }
+
+        // Remove existing order-product relationships
+        await OrderProduct.destroy({
+          where: { order_id: id },
+          transaction
+        });
+
+        // Create new order-product relationships
+        const orderProducts = products.map(product => ({
+          order_id: id,
+          product_id: product.productId,
+          quantity: product.quantity,
+          unit_price: product.unitPrice || null
+        }));
+
+        await OrderProduct.bulkCreate(orderProducts, { transaction });
+      }
+
+      // Update other fields
       await order.update({
         commercial_en_charge: commercial_en_charge || order.commercial_en_charge,
         infographe_en_charge: infographe_en_charge !== undefined ? infographe_en_charge : order.infographe_en_charge,
         numero_pms: numero_pms || order.numero_pms,
         client: client || order.client,
-        produit_details: produit_details || order.produit_details,
-        quantite: quantite || order.quantite,
         date_limite_livraison_estimee: date_limite_livraison_estimee ? new Date(date_limite_livraison_estimee) : order.date_limite_livraison_estimee,
         date_limite_livraison_attendue: date_limite_livraison_attendue ? new Date(date_limite_livraison_attendue) : order.date_limite_livraison_attendue,
         etape: etape !== undefined ? etape : order.etape,
@@ -184,13 +295,30 @@ class OrderController {
         atelier_concerne: atelier_concerne !== undefined ? atelier_concerne : order.atelier_concerne,
         statut: statut || order.statut,
         commentaires: commentaires !== undefined ? commentaires : order.commentaires
+      }, { transaction });
+
+      await transaction.commit();
+
+      // Fetch the updated order with products
+      const updatedOrder = await Order.findByPk(id, {
+        include: [
+          {
+            model: Product,
+            as: 'products',
+            through: {
+              as: 'orderProduct',
+              attributes: ['quantity', 'unit_price']
+            }
+          }
+        ]
       });
 
       res.json({
         message: 'Commande mise à jour avec succès',
-        order: order
+        order: updatedOrder
       });
     } catch (error) {
+      await transaction.rollback();
       console.error('Update order error:', error);
       if (error.name === 'SequelizeUniqueConstraintError') {
         return res.status(400).json({ message: 'Ce numéro PMS existe déjà' });
@@ -203,13 +331,13 @@ class OrderController {
   static async deleteOrder(req, res) {
     try {
       const { id } = req.params;
-      const Order = getOrder();
 
       const order = await Order.findByPk(id);
       if (!order) {
         return res.status(404).json({ message: 'Commande non trouvée' });
       }
 
+      // OrderProduct records will be automatically deleted due to CASCADE
       await order.destroy();
 
       res.json({
@@ -224,8 +352,6 @@ class OrderController {
   // Get order statistics
   static async getOrderStats(req, res) {
     try {
-      const Order = getOrder();
-
       const stats = await Order.findAll({
         attributes: [
           'statut',

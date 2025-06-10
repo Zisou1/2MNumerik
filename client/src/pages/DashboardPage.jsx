@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { orderAPI } from '../utils/api'
+import { orderAPI, productAPI } from '../utils/api'
 import Button from '../components/ButtonComponent'
 import Input from '../components/InputComponent'
 import AlertDialog from '../components/AlertDialog'
@@ -570,8 +570,23 @@ const DashboardPage = () => {
                     {order.infographe_en_charge && (
                       <p><span className="font-medium">Infographe:</span> {order.infographe_en_charge}</p>
                     )}
-                    <p><span className="font-medium">Produit:</span> {order.produit_details}</p>
-                    <p><span className="font-medium">Quantité:</span> {order.quantite}</p>
+                    <div>
+                      <span className="font-medium">Produits:</span>
+                      {order.products && order.products.length > 0 ? (
+                        <ul className="ml-4 mt-1">
+                          {order.products.map((product, index) => (
+                            <li key={index} className="text-sm">
+                              {product.name} (Qté: {product.orderProduct?.quantity || 'N/A'})
+                              {product.orderProduct?.unit_price && (
+                                <span className="text-gray-600"> - {product.orderProduct.unit_price}€/unité</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="ml-2 text-gray-500">Aucun produit associé</span>
+                      )}
+                    </div>
                     <div>
                       <span className="font-medium">Étape:</span> 
                       <span className="ml-2 inline-edit">
@@ -690,11 +705,23 @@ const DashboardPage = () => {
                         <div className="text-sm font-medium text-gray-900">
                           {order.numero_pms}
                         </div>
-                        <div className="text-sm text-gray-500 truncate max-w-xs">
-                          {order.produit_details}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          Qté: {order.quantite}
+                        <div className="text-sm text-gray-500 max-w-xs">
+                          {order.products && order.products.length > 0 ? (
+                            <>
+                              {order.products.slice(0, 2).map((product, index) => (
+                                <div key={index} className="truncate">
+                                  {product.name} (Qté: {product.orderProduct?.quantity || 'N/A'})
+                                </div>
+                              ))}
+                              {order.products.length > 2 && (
+                                <div className="text-xs text-gray-400">
+                                  +{order.products.length - 2} produit(s) de plus
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-gray-400">Aucun produit</span>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -956,20 +983,40 @@ const OrderViewModal = ({ order, onClose, onEdit, formatDate, getStatusBadge }) 
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                       </svg>
                     </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Détails du produit</h4>
+                    <h4 className="text-lg font-semibold text-gray-800">Produits commandés</h4>
                   </div>
                   <div className="space-y-4">
-                    <div className="py-2 border-b border-green-200/50">
-                      <span className="font-medium text-gray-700 block mb-2">Description:</span>
-                      <p className="text-gray-900 bg-white p-3 rounded-lg border border-green-200/50">
-                        {order.produit_details || '-'}
-                      </p>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-green-200/50">
-                      <span className="font-medium text-gray-700">Quantité:</span>
-                      <span className="text-gray-900 font-semibold">{order.quantite}</span>
-                    </div>
-                    <div className="py-2">
+                    {order.products && order.products.length > 0 ? (
+                      order.products.map((product, index) => (
+                        <div key={index} className="bg-white p-4 rounded-lg border border-green-200/50 shadow-sm">
+                          <div className="flex justify-between items-start mb-2">
+                            <h5 className="font-medium text-gray-800">{product.name}</h5>
+                            <span className="text-sm text-gray-500">#{product.id}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="font-medium text-gray-600">Quantité:</span>
+                              <span className="ml-2 text-gray-900">{product.orderProduct?.quantity || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-600">Temps estimé:</span>
+                              <span className="ml-2 text-gray-900">{product.estimated_creation_time}h</span>
+                            </div>
+                            {product.orderProduct?.unit_price && (
+                              <div className="col-span-2">
+                                <span className="font-medium text-gray-600">Prix unitaire:</span>
+                                <span className="ml-2 text-gray-900">{product.orderProduct.unit_price}€</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="bg-white p-4 rounded-lg border border-green-200/50 text-center text-gray-500">
+                        Aucun produit associé à cette commande
+                      </div>
+                    )}
+                    <div className="py-2 border-t border-green-200/50">
                       <span className="font-medium text-gray-700 block mb-2">Options de finition:</span>
                       <p className="text-gray-900 bg-white p-3 rounded-lg border border-green-200/50">
                         {order.option_finition || '-'}
@@ -1085,8 +1132,6 @@ const OrderModal = ({ order, onClose, onSave, statusOptions, atelierOptions, eta
     infographe_en_charge: '',
     numero_pms: '',
     client: '',
-    produit_details: '',
-    quantite: '',
     date_limite_livraison_estimee: '',
     date_limite_livraison_attendue: '',
     etape: '',
@@ -1095,8 +1140,28 @@ const OrderModal = ({ order, onClose, onSave, statusOptions, atelierOptions, eta
     statut: 'en_attente',
     commentaires: ''
   })
+  const [selectedProducts, setSelectedProducts] = useState([])
+  const [availableProducts, setAvailableProducts] = useState([])
   const [loading, setLoading] = useState(false)
+  const [productsLoading, setProductsLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // Fetch available products
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        setProductsLoading(true)
+        const products = await productAPI.getProducts()
+        setAvailableProducts(products)
+      } catch (err) {
+        console.error('Error fetching products:', err)
+        setError('Erreur lors du chargement des produits')
+      } finally {
+        setProductsLoading(false)
+      }
+    }
+    fetchProducts()
+  }, [])
 
   useEffect(() => {
     if (order) {
@@ -1105,8 +1170,6 @@ const OrderModal = ({ order, onClose, onSave, statusOptions, atelierOptions, eta
         infographe_en_charge: order.infographe_en_charge || '',
         numero_pms: order.numero_pms || '',
         client: order.client || '',
-        produit_details: order.produit_details || '',
-        quantite: order.quantite || '',
         date_limite_livraison_estimee: order.date_limite_livraison_estimee ? 
           new Date(order.date_limite_livraison_estimee).toISOString().slice(0, 16) : '',
         date_limite_livraison_attendue: order.date_limite_livraison_attendue ? 
@@ -1117,19 +1180,65 @@ const OrderModal = ({ order, onClose, onSave, statusOptions, atelierOptions, eta
         statut: order.statut || 'en_attente',
         commentaires: order.commentaires || ''
       })
+      
+      // If editing existing order with products, populate selectedProducts
+      if (order.products && order.products.length > 0) {
+        const orderProducts = order.products.map(product => ({
+          productId: product.id,
+          quantity: product.orderProduct?.quantity || 1,
+          unitPrice: product.orderProduct?.unit_price || null
+        }))
+        setSelectedProducts(orderProducts)
+      }
     }
   }, [order])
+
+  const addProduct = () => {
+    setSelectedProducts([...selectedProducts, { productId: '', quantity: 1, unitPrice: null }])
+  }
+
+  const removeProduct = (index) => {
+    setSelectedProducts(selectedProducts.filter((_, i) => i !== index))
+  }
+
+  const updateProduct = (index, field, value) => {
+    const updated = [...selectedProducts]
+    updated[index] = { ...updated[index], [field]: value }
+    setSelectedProducts(updated)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setError('')
 
+    // Validate that at least one product is selected
+    if (selectedProducts.length === 0) {
+      setError('Veuillez sélectionner au moins un produit')
+      setLoading(false)
+      return
+    }
+
+    // Validate that all selected products have valid data
+    for (let i = 0; i < selectedProducts.length; i++) {
+      const product = selectedProducts[i]
+      if (!product.productId || !product.quantity || product.quantity <= 0) {
+        setError(`Produit ${i + 1}: Veuillez sélectionner un produit et spécifier une quantité valide`)
+        setLoading(false)
+        return
+      }
+    }
+
     try {
+      const submitData = {
+        ...formData,
+        products: selectedProducts
+      }
+      
       if (order) {
-        await orderAPI.updateOrder(order.id, formData)
+        await orderAPI.updateOrder(order.id, submitData)
       } else {
-        await orderAPI.createOrder(formData)
+        await orderAPI.createOrder(submitData)
       }
       onSave()
     } catch (err) {
@@ -1242,63 +1351,136 @@ const OrderModal = ({ order, onClose, onSave, statusOptions, atelierOptions, eta
                 </div>
               </div>
 
-              {/* Section 2: Détails du produit */}
+              {/* Section 2: Sélection des produits */}
               <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-green-100 rounded-lg shadow-sm border border-green-200">
-                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 rounded-lg shadow-sm border border-green-200">
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                      </svg>
+                    </div>
+                    <h4 className="text-lg font-semibold text-gray-800">Sélection des produits</h4>
+                    <div className="flex-1 h-px bg-gradient-to-r from-green-200 to-transparent"></div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addProduct}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 text-sm font-medium shadow-sm"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                     </svg>
-                  </div>
-                  <h4 className="text-lg font-semibold text-gray-800">Détails du produit</h4>
-                  <div className="flex-1 h-px bg-gradient-to-r from-green-200 to-transparent"></div>
+                    Ajouter produit
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Description du produit *
-                    </label>
-                    <textarea
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none transition-all duration-200 hover:border-gray-400 bg-white shadow-sm"
-                      rows="4"
-                      value={formData.produit_details}
-                      onChange={(e) => handleChange('produit_details', e.target.value)}
-                      placeholder="Décrivez en détail le produit à réaliser..."
-                      required
-                    />
+
+                {productsLoading ? (
+                  <div className="text-center py-8">
+                    <div className="text-gray-500">Chargement des produits...</div>
                   </div>
-                  
-                  <Input
-                    label="Quantité *"
-                    type="number"
-                    value={formData.quantite}
-                    onChange={(e) => handleChange('quantite', parseInt(e.target.value) || '')}
-                    required
-                    placeholder="Ex: 1000"
-                    min="1"
-                  />
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Statut
-                    </label>
-                    <div className="relative">
-                      <select
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white shadow-sm transition-all duration-200 hover:border-gray-400"
-                        value={formData.statut}
-                        onChange={(e) => handleChange('statut', e.target.value)}
-                      >
-                        {statusOptions.map(status => (
-                          <option key={status.value} value={status.value}>
-                            {status.label}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
+                ) : (
+                  <div className="space-y-4">
+                    {selectedProducts.length === 0 ? (
+                      <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                        <div className="text-gray-500 mb-2">Aucun produit sélectionné</div>
+                        <button
+                          type="button"
+                          onClick={addProduct}
+                          className="text-green-600 hover:text-green-700 font-medium"
+                        >
+                          Cliquez ici pour ajouter votre premier produit
+                        </button>
                       </div>
+                    ) : (
+                      selectedProducts.map((product, index) => (
+                        <div key={index} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+                          <div className="flex items-center justify-between mb-4">
+                            <h5 className="font-medium text-gray-800">Produit {index + 1}</h5>
+                            <button
+                              type="button"
+                              onClick={() => removeProduct(index)}
+                              className="text-red-600 hover:text-red-800 p-1 hover:bg-red-50 rounded transition-colors duration-200"
+                              title="Supprimer ce produit"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Produit *
+                              </label>
+                              <select
+                                value={product.productId}
+                                onChange={(e) => updateProduct(index, 'productId', parseInt(e.target.value))}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                required
+                              >
+                                <option value="">Sélectionner un produit</option>
+                                {availableProducts.map(p => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name} ({p.estimated_creation_time}h)
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Quantité *
+                              </label>
+                              <input
+                                type="number"
+                                value={product.quantity}
+                                onChange={(e) => updateProduct(index, 'quantity', parseInt(e.target.value) || 1)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                min="1"
+                                required
+                                placeholder="Ex: 1000"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Prix unitaire (optionnel)
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={product.unitPrice || ''}
+                                onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || null)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                placeholder="Ex: 0.50"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Statut
+                  </label>
+                  <div className="relative">
+                    <select
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white shadow-sm transition-all duration-200 hover:border-gray-400"
+                      value={formData.statut}
+                      onChange={(e) => handleChange('statut', e.target.value)}
+                    >
+                      {statusOptions.map(status => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </div>
                   </div>
                 </div>
