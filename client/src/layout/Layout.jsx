@@ -1,16 +1,38 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Outlet, useLocation, Link } from 'react-router-dom'
 import logoPrimary from '../assets/logoprimary.png'
 import { useAuth } from '../contexts/AuthContext'
+import { useNotifications } from '../contexts/NotificationContext'
 import AlertDialog from '../components/AlertDialog'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faBell } from '@fortawesome/free-solid-svg-icons'
 
 function Layout({ onLogout }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
+  const [showNotificationDropdown, setShowNotificationDropdown] = useState(false)
+  const notificationRef = useRef(null)
   const location = useLocation()
   const { user } = useAuth()
+  const { notifications, removeNotification, clearAllNotifications } = useNotifications()
   const isActive = (path) => location.pathname === path
+
+  // Close notification dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setShowNotificationDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Get urgent notifications count
+  const urgentNotifications = notifications.filter(n => n.priority === 'urgent')
+  const totalNotifications = notifications.length
 
   const handleLogoutClick = () => {
     setShowLogoutDialog(true)
@@ -51,6 +73,126 @@ function Layout({ onLogout }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
+          </div>
+          
+          {/* Right side - User info and notifications */}
+          <div className="flex items-center gap-4">
+            {/* Notification dropdown */}
+            <div className="relative" ref={notificationRef}>
+              <button 
+                onClick={() => setShowNotificationDropdown(!showNotificationDropdown)}
+                className="p-2 rounded-full hover:bg-gray-100 relative transition-colors duration-200"
+              >
+                <FontAwesomeIcon 
+                  icon={faBell} 
+                  className={`w-5 h-5 transition-colors duration-200 ${
+                    urgentNotifications.length > 0 ? 'text-red-500' : 'text-gray-600'
+                  }`} 
+                />
+                {/* Notification badge */}
+                {totalNotifications > 0 && (
+                  <span className={`absolute -top-1 -right-1 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center transition-colors duration-200 ${
+                    urgentNotifications.length > 0 ? 'bg-red-500' : 'bg-blue-500'
+                  }`}>
+                    {totalNotifications > 9 ? '9+' : totalNotifications}
+                  </span>
+                )}
+              </button>
+
+              {/* Notification Dropdown */}
+              {showNotificationDropdown && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-96 overflow-hidden">
+                  {/* Header */}
+                  <div className="px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      Notifications ({totalNotifications})
+                    </h3>
+                    {totalNotifications > 0 && (
+                      <button
+                        onClick={clearAllNotifications}
+                        className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                      >
+                        Tout effacer
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Notification List */}
+                  <div className="max-h-64 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-gray-500 text-sm">
+                        Aucune notification
+                      </div>
+                    ) : (
+                      notifications.map((notification) => (
+                        <div
+                          key={notification.id}
+                          className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer ${
+                            notification.priority === 'urgent' ? 'bg-red-50 border-red-100' :
+                            notification.priority === 'high' ? 'bg-orange-50 border-orange-100' :
+                            'bg-white'
+                          }`}
+                          onClick={() => removeNotification(notification.id)}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 mt-1">
+                              {notification.priority === 'urgent' ? (
+                                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                              ) : notification.priority === 'high' ? (
+                                <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                              ) : (
+                                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {notification.title}
+                              </p>
+                              <p className="text-xs text-gray-600 mt-1">
+                                {notification.message}
+                              </p>
+                              {notification.orderNumber && (
+                                <p className="text-xs text-gray-500 mt-1 font-mono">
+                                  {notification.orderNumber}
+                                </p>
+                              )}
+                              <p className="text-xs text-gray-400 mt-1">
+                                {notification.timestamp.toLocaleTimeString('fr-FR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* User avatar and info */}
+            {user && (
+              <div className="flex items-center gap-3">
+                {/* Avatar */}
+                <div className="w-8 h-8 bg-[#00AABB] rounded-full flex items-center justify-center">
+                  <span className="text-white text-sm font-medium">
+                    {user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                
+                {/* User name and role */}
+                <div className="hidden md:block">
+                  <p className="text-sm font-medium text-gray-900">
+                    {user.name || user.email}
+                  </p>
+                  <p className="text-xs text-gray-500 capitalize">
+                    {user.role}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </nav>
@@ -121,6 +263,18 @@ function Layout({ onLogout }) {
                 </Link>
               </li>
               <li>
+                <Link to="/history" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                  isActive('/history') 
+                    ? 'bg-[#00AABB] text-white' 
+                    : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
+                }`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Historique</span>
+                </Link>
+              </li>
+              <li>
                 <Link to="/products" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
                   isActive('/products') 
                     ? 'bg-[#00AABB] text-white' 
@@ -132,6 +286,32 @@ function Layout({ onLogout }) {
                   <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Products</span>
                 </Link>
               </li>
+              <li>
+                <Link to="/clients" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                  isActive('/clients') 
+                    ? 'bg-[#00AABB] text-white' 
+                    : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
+                }`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m9 5.197v1M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                  </svg>
+                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Clients</span>
+                </Link>
+              </li>
+              {user?.role === 'admin' && (
+                <li>
+                  <Link to="/statistics" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                    isActive('/statistics') 
+                      ? 'bg-[#00AABB] text-white' 
+                      : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
+                  }`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v4" />
+                    </svg>
+                    <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Statistiques</span>
+                  </Link>
+                </li>
+              )}
                 {user?.role==='admin' &&(
                    <li>
                 <Link to="/management" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
@@ -152,19 +332,21 @@ function Layout({ onLogout }) {
 
             {/* Bottom navigation items */}
             <ul className="space-y-2 mt-4">
-              <li>
-                <Link to="/settings" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
-                  isActive('/settings') 
-                    ? 'bg-[#00AABB] text-white' 
-                    : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
-                }`}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Settings</span>
-                </Link>
-              </li>
+              {user?.role === 'admin' && (
+                <li>
+                  <Link to="/settings" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                    isActive('/settings') 
+                      ? 'bg-[#00AABB] text-white' 
+                      : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
+                  }`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Settings</span>
+                  </Link>
+                </li>
+              )}
              <li>
   <button 
     onClick={handleLogoutClick}

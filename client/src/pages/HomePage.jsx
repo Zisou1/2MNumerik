@@ -52,6 +52,26 @@ function HomePage() {
     
     const deliveryDate = new Date(order.date_limite_livraison_estimee)
     const now = new Date()
+    
+    // If estimated work time is provided, calculate when work must start
+    if (order.estimated_work_time_minutes) {
+      const workTimeMs = order.estimated_work_time_minutes * 60 * 1000 // Convert minutes to milliseconds
+      const latestStartTime = new Date(deliveryDate.getTime() - workTimeMs)
+      
+      // Check if we're past the latest start time
+      if (now >= latestStartTime) return 'urgent'
+      
+      // Check how much time remains before we must start
+      const timeUntilStart = latestStartTime.getTime() - now.getTime()
+      const hoursUntilStart = timeUntilStart / (1000 * 60 * 60)
+      
+      // If we need to start within 24 hours, it's high priority
+      if (hoursUntilStart <= 24) return 'high'
+      
+      return 'normal'
+    }
+    
+    // Fallback to old logic if no estimated work time is set
     const diffDays = Math.ceil((deliveryDate - now) / (1000 * 60 * 60 * 24))
     
     if (diffDays <= 1) return 'urgent'
@@ -267,6 +287,18 @@ function HomePage() {
                   <p className="text-orange-600 text-sm">Gérer les produits</p>
                 </div>
               </a>
+
+              <a href="/statistics" className="flex items-center p-5 bg-gradient-to-r from-indigo-50 to-indigo-100 rounded-xl hover:from-indigo-100 hover:to-indigo-200 transition-all duration-300 group border border-indigo-200">
+                <div className="p-3 bg-indigo-500 rounded-lg mr-4 group-hover:bg-indigo-600 transition-colors">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v4" />
+                  </svg>
+                </div>
+                <div>
+                  <span className="font-bold text-indigo-700 text-lg">Statistiques</span>
+                  <p className="text-indigo-600 text-sm">Analyser les performances</p>
+                </div>
+              </a>
             </div>
           </div>
 
@@ -354,18 +386,21 @@ function HomePage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <a href="/dashboard" className="group bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:border-blue-200">
-          <div className="flex flex-col items-center text-center">
-            <div className="p-6 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg group-hover:shadow-blue-200 transition-all mb-6">
-              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
+      <div className={`grid grid-cols-1 gap-8 ${(user?.role === 'admin' || user?.role === 'commercial') ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+        {/* Only show "Nouvelle Commande" for admin and commercial users */}
+        {(user?.role === 'admin' || user?.role === 'commercial') && (
+          <a href="/dashboard" className="group bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:border-blue-200">
+            <div className="flex flex-col items-center text-center">
+              <div className="p-6 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg group-hover:shadow-blue-200 transition-all mb-6">
+                <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors mb-3">Nouvelle Commande</h3>
+              <p className="text-gray-600 text-lg leading-relaxed">Créer une nouvelle commande d'impression personnalisée</p>
             </div>
-            <h3 className="text-2xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors mb-3">Nouvelle Commande</h3>
-            <p className="text-gray-600 text-lg leading-relaxed">Créer une nouvelle commande d'impression personnalisée</p>
-          </div>
-        </a>
+          </a>
+        )}
 
         <a href="/dashboard" className="group bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:border-green-200">
           <div className="flex flex-col items-center text-center">
@@ -376,6 +411,18 @@ function HomePage() {
             </div>
             <h3 className="text-2xl font-bold text-gray-900 group-hover:text-green-600 transition-colors mb-3">Mes Commandes</h3>
             <p className="text-gray-600 text-lg leading-relaxed">Suivre l'état et l'avancement de vos commandes</p>
+          </div>
+        </a>
+
+        <a href="/history" className="group bg-white rounded-2xl shadow-xl p-8 hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:border-orange-200">
+          <div className="flex flex-col items-center text-center">
+            <div className="p-6 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl shadow-lg group-hover:shadow-orange-200 transition-all mb-6">
+              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 group-hover:text-orange-600 transition-colors mb-3">Historique</h3>
+            <p className="text-gray-600 text-lg leading-relaxed">Consulter les commandes terminées et annulées</p>
           </div>
         </a>
 

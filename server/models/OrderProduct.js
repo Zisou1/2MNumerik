@@ -38,6 +38,11 @@ module.exports = (sequelize) => {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
       comment: 'Price per unit for this product in this order (optional)'
+    },
+    finitions: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'JSON array of selected finitions for this product in this order. Each finition object contains: {finition_id, additional_cost, additional_time}'
     }
   }, {
     tableName: 'order_products',

@@ -3,8 +3,13 @@ import { orderAPI, productAPI } from '../utils/api'
 import Button from '../components/ButtonComponent'
 import Input from '../components/InputComponent'
 import AlertDialog from '../components/AlertDialog'
-
+import ClientSearch from '../components/ClientSearch'
+import { useAuth } from '../contexts/AuthContext'
+import { usePriorityNotifications } from '../hooks/usePriorityNotifications'
+import OrderModal from '../components/OrderModal'
+import OrderViewModal from '../components/OrderViewModal'
 const DashboardPage = () => {
+  const { user } = useAuth()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -20,8 +25,9 @@ const DashboardPage = () => {
     commercial: '',
     client: '',
     atelier: '',
-    infographe: '',
-    etape: ''
+    infograph: '',
+    etape: '',
+    timeFilter: 'all' // 'active', 'last30days', 'last90days', 'all'
   })
   const [pagination, setPagination] = useState({
     currentPage: 1,
@@ -30,6 +36,90 @@ const DashboardPage = () => {
   })
   const [inlineEditing, setInlineEditing] = useState({})
   const [tempValues, setTempValues] = useState({})
+  const [currentTime, setCurrentTime] = useState(new Date())
+
+  // Helper function to check if user can create orders
+  const canCreateOrders = () => {
+    return user && (user.role === 'admin' || user.role === 'commercial')
+  }
+
+  // Helper function to check if user can edit orders
+  const canEditOrders = () => {
+    return user && (user.role === 'admin' || user.role === 'commercial')
+  }
+
+  // Helper function to check if user can delete orders
+  const canDeleteOrders = () => {
+    return user && user.role === 'admin'
+  }
+
+  // Helper function to get visible columns based on user role
+  const getVisibleColumns = () => {
+    if (user?.role === 'commercial') {
+      return {
+        code_client: true,
+        nom_client: true,
+        numero_affaire: true,
+        commercial_en_charge: true,
+        date_limite_livraison_attendue: true,
+        produits: true,
+        quantite: true,
+        statut: true,
+        etape: true,
+        atelier_concerne: true,
+        bat: true,
+        express: true,
+        // Hide these fields for commercial
+        infograph_en_charge: false,
+        date_limite_livraison_estimee: false,
+        estimated_work_time_minutes: false,
+        option_finition: false
+      }
+    }
+    if (user?.role === 'infograph') {
+      return {
+        numero_pms: true,
+        nom_client: true,
+        produits: true,
+        quantite: true,
+        statut: true,
+        option_finition: true,
+        infograph_en_charge: true,
+        bat: true,
+        express: true,
+        // Hide these fields for infograph
+        code_client: false,
+        numero_affaire: false,
+        commercial_en_charge: false,
+        date_limite_livraison_estimee: false,
+        date_limite_livraison_attendue: false,
+        etape: false,
+        atelier_concerne: false,
+        estimated_work_time_minutes: false
+      }
+    }
+    // Default for admin and other roles - show all columns
+    return {
+      code_client: true,
+      nom_client: true,
+      numero_affaire: true,
+      commercial_en_charge: true,
+      infograph_en_charge: true,
+      date_limite_livraison_estimee: true,
+      date_limite_livraison_attendue: true,
+      produits: true,
+      quantite: true,
+      statut: true,
+      etape: true,
+      atelier_concerne: true,
+      estimated_work_time_minutes: true,
+      option_finition: true,
+      bat: true,
+      express: true
+    }
+  }
+
+  const visibleColumns = getVisibleColumns()
 
   const statusOptions = [
     { value: 'en_attente', label: 'En attente', color: 'bg-yellow-200 text-yellow-900 border border-yellow-300', rowColor: 'bg-yellow-100 hover:bg-yellow-200 border-l-4 border-yellow-400' },
@@ -41,6 +131,17 @@ const DashboardPage = () => {
 
   const atelierOptions = ['petit format', 'grand format', 'sous-traitance']
   const etapeOptions = ['conception', 'pré-presse', 'impression', 'finition', 'découpe']
+  const batOptions = [
+    { value: 'avec', label: 'Avec' },
+    { value: 'sans', label: 'Sans' }
+  ]
+  const expressOptions = [
+    { value: 'oui', label: 'Oui' },
+    { value: 'non', label: 'Non' }
+  ]
+
+  // Initialize priority notifications hook
+  const { checkUrgentOrders } = usePriorityNotifications(orders)
 
   const fetchOrders = async (page = 1) => {
     try {
@@ -49,7 +150,11 @@ const DashboardPage = () => {
       Object.keys(params).forEach(key => params[key] === '' && delete params[key])
       
       const response = await orderAPI.getOrders(params)
-      setOrders(response.orders)
+      // Filter out cancelled and delivered orders from the display
+      const filteredOrders = response.orders.filter(order => 
+        order.statut !== 'annule' && order.statut !== 'livre'
+      )
+      setOrders(filteredOrders)
       setPagination(response.pagination)
     } catch (err) {
       setError('Erreur lors du chargement des commandes')
@@ -71,6 +176,15 @@ const DashboardPage = () => {
     fetchOrders()
     fetchStats()
   }, [filters])
+
+  // Update current time every minute to refresh row colors
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 60000) // Update every minute
+
+    return () => clearInterval(timer)
+  }, [])
 
   const handleCreateOrder = () => {
     setSelectedOrder(null)
@@ -109,6 +223,9 @@ const DashboardPage = () => {
   }
 
   const handleInlineEdit = (orderId, field, currentValue) => {
+    // Only allow inline editing for admin and commercial users
+    if (user?.role === 'infograph') return
+    
     setInlineEditing({ [`${orderId}-${field}`]: true })
     setTempValues({ [`${orderId}-${field}`]: currentValue })
   }
@@ -128,10 +245,15 @@ const DashboardPage = () => {
       
       await orderAPI.updateOrder(orderId, { [field]: valueToSend })
       
-      // Update the local orders state
-      setOrders(orders.map(order => 
-        order.id === orderId ? { ...order, [field]: valueToSend } : order
-      ))
+      // If status is changed to cancelled or delivered, remove from local state
+      if (field === 'statut' && (newValue === 'annule' || newValue === 'livre')) {
+        setOrders(orders.filter(order => order.id !== orderId))
+      } else {
+        // Update the local orders state normally
+        setOrders(orders.map(order => 
+          order.id === orderId ? { ...order, [field]: valueToSend } : order
+        ))
+      }
       
       // Clear editing state
       setInlineEditing({ ...inlineEditing, [`${orderId}-${field}`]: false })
@@ -144,6 +266,41 @@ const DashboardPage = () => {
     } catch (err) {
       setError('Erreur lors de la mise à jour')
       cancelInlineEdit(orderId, field)
+    }
+  }
+
+  // Simplified inline edit handler for direct save
+  const handleDirectEdit = async (orderId, field, newValue, originalValue) => {
+    // Don't save if value hasn't changed
+    if (newValue === originalValue) {
+      return
+    }
+
+    try {
+      // For date fields, convert the datetime-local value to ISO string
+      let valueToSend = newValue
+      if ((field === 'date_limite_livraison_estimee' || field === 'date_limite_livraison_attendue') && newValue) {
+        valueToSend = new Date(newValue).toISOString()
+      }
+      
+      await orderAPI.updateOrder(orderId, { [field]: valueToSend })
+      
+      // If status is changed to cancelled or delivered, remove from local state
+      if (field === 'statut' && (newValue === 'annule' || newValue === 'livre')) {
+        setOrders(orders.filter(order => order.id !== orderId))
+      } else {
+        // Update the local orders state normally
+        setOrders(orders.map(order => 
+          order.id === orderId ? { ...order, [field]: valueToSend } : order
+        ))
+      }
+      
+      // Refresh stats in case status changed
+      if (field === 'statut') {
+        fetchStats()
+      }
+    } catch (err) {
+      setError('Erreur lors de la mise à jour')
     }
   }
 
@@ -173,42 +330,34 @@ const DashboardPage = () => {
             type="datetime-local"
             value={tempValue || ''}
             onChange={(e) => handleTempValueChange(order.id, field, e.target.value)}
-            className="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+            onBlur={() => saveInlineEdit(order.id, field, tempValue)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                saveInlineEdit(order.id, field, tempValue)
+              } else if (e.key === 'Escape') {
+                cancelInlineEdit(order.id, field)
+              }
+            }}
+            className="text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             autoFocus
           />
-          <button
-            onClick={() => saveInlineEdit(order.id, field, tempValue)}
-            className="text-green-600 hover:text-green-800 p-1"
-            title="Sauvegarder"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </button>
-          <button
-            onClick={() => cancelInlineEdit(order.id, field)}
-            className="text-red-600 hover:text-red-800 p-1"
-            title="Annuler"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
         </div>
       )
     }
 
     return (
       <div 
-        className="cursor-pointer hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-200 group inline-edit"
+        className={`${user?.role === 'infograph' ? 'px-2 py-1' : 'cursor-pointer hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-200 group'} inline-edit`}
         onClick={() => handleInlineEdit(order.id, field, currentValue ? new Date(currentValue).toISOString().slice(0, 16) : '')}
-        title="Cliquer pour modifier"
+        title={user?.role === 'infograph' ? "Lecture seule" : "Cliquer pour modifier (Entrée pour valider, Échap pour annuler)"}
       >
         <div className="flex items-center justify-between">
           <span>{formatDate(currentValue)}</span>
-          <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-          </svg>
+          {user?.role !== 'infograph' && (
+            <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          )}
         </div>
       </div>
     )
@@ -237,7 +386,7 @@ const DashboardPage = () => {
   }
 
   const getRowBackgroundClass = (order) => {
-    const { statut, date_limite_livraison_estimee } = order;
+    const { statut, date_limite_livraison_estimee, estimated_work_time_minutes } = order;
     
     // If status is finished (termine or livre), return green
     if (statut === 'termine' || statut === 'livre') {
@@ -249,19 +398,32 @@ const DashboardPage = () => {
       return 'bg-gray-50 hover:bg-gray-100';
     }
     
-    const now = new Date();
+    const now = currentTime;
     const deadline = new Date(date_limite_livraison_estimee);
-    const hoursUntilDeadline = (deadline - now) / (1000 * 60 * 60); // Convert to hours
     
-    // Time-based color logic
-    if (hoursUntilDeadline < 0) {
-      return 'bg-red-200 hover:bg-red-300 border-l-4 border-red-500'; // Deadline passed - red (en retard)
-    } else if (hoursUntilDeadline <= 1) {
-      return 'bg-orange-200 hover:bg-orange-300 border-l-4 border-orange-500'; // 1 hour or less - orange
-    } else if (hoursUntilDeadline <= 2) {
-      return 'bg-yellow-200 hover:bg-yellow-300 border-l-4 border-yellow-500'; // 2 hours or less - yellow
+    // Calculate work time in hours (default to 2 hours if not specified)
+    const workTimeHours = estimated_work_time_minutes ? estimated_work_time_minutes / 60 : 2;
+    
+    // Calculate the latest start time (deadline - work time needed)
+    const latestStartTime = new Date(deadline.getTime() - (workTimeHours * 60 * 60 * 1000));
+    
+    // Calculate hours until we must start working
+    const hoursUntilMustStart = (latestStartTime - now) / (1000 * 60 * 60);
+    
+    // Calculate hours until actual deadline for reference
+    const hoursUntilDeadline = (deadline - now) / (1000 * 60 * 60);
+    
+    // Time-based color logic using intelligent work time calculation
+    if (hoursUntilMustStart < 0) {
+      return 'bg-red-200 hover:bg-red-300 border-l-4 border-red-500'; // Past latest start time - red (impossible to finish on time)
+    } else if (hoursUntilMustStart <= 0.5) {
+      return 'bg-orange-200 hover:bg-orange-300 border-l-4 border-orange-500'; // 30 minutes or less before must start - orange
+    } else if (hoursUntilMustStart <= 1) {
+      return 'bg-yellow-200 hover:bg-yellow-300 border-l-4 border-yellow-500'; // 1 hour or less before must start - yellow
+    } else if (hoursUntilDeadline < 0) {
+      return 'bg-red-200 hover:bg-red-300 border-l-4 border-red-500'; // Deadline passed but had enough time to start - still red
     } else {
-      return 'bg-gray-50 hover:bg-gray-100'; // More than 2 hours - normal gray
+      return 'bg-gray-50 hover:bg-gray-100'; // Normal - enough time available
     }
   }
 
@@ -275,8 +437,19 @@ const DashboardPage = () => {
         <div className="flex items-center gap-2 inline-edit">
           <select
             value={tempValue || ''}
-            onChange={(e) => handleTempValueChange(order.id, field, e.target.value)}
-            className="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+            onChange={(e) => {
+              const newValue = e.target.value
+              handleTempValueChange(order.id, field, newValue)
+              // Auto-save on select change
+              saveInlineEdit(order.id, field, newValue)
+            }}
+            onBlur={() => cancelInlineEdit(order.id, field)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                cancelInlineEdit(order.id, field)
+              }
+            }}
+            className="text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             autoFocus
           >
             <option value="">-</option>
@@ -286,39 +459,69 @@ const DashboardPage = () => {
               </option>
             ))}
           </select>
-          <button
-            onClick={() => saveInlineEdit(order.id, field, tempValue)}
-            className="text-green-600 hover:text-green-800 p-1"
-            title="Sauvegarder"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </button>
-          <button
-            onClick={() => cancelInlineEdit(order.id, field)}
-            className="text-red-600 hover:text-red-800 p-1"
-            title="Annuler"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
         </div>
       )
     }
 
     return (
       <div 
-        className="cursor-pointer hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-200 group inline-edit"
+        className={`${user?.role === 'infograph' ? 'px-2 py-1' : 'cursor-pointer hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-200 group'} inline-edit`}
         onClick={() => handleInlineEdit(order.id, field, order[field])}
-        title="Cliquer pour modifier"
+        title={user?.role === 'infograph' ? "Lecture seule" : "Cliquer pour modifier"}
       >
         <div className="flex items-center justify-between">
           <span>{displayValue}</span>
-          <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-          </svg>
+          {user?.role !== 'infograph' && (
+            <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const renderInlineNumber = (order, field, displayValue, unit = '') => {
+    const editKey = `${order.id}-${field}`
+    const isEditing = inlineEditing[editKey]
+    const tempValue = tempValues[editKey]
+
+    if (isEditing) {
+      return (
+        <div className="flex items-center gap-2 inline-edit">
+          <input
+            type="number"
+            value={tempValue || ''}
+            onChange={(e) => handleTempValueChange(order.id, field, e.target.value)}
+            onBlur={() => saveInlineEdit(order.id, field, tempValue)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                saveInlineEdit(order.id, field, tempValue)
+              } else if (e.key === 'Escape') {
+                cancelInlineEdit(order.id, field)
+              }
+            }}
+            className="text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 w-20"
+            autoFocus
+            min="0"
+          />
+        </div>
+      )
+    }
+
+    return (
+      <div 
+        className={`${user?.role === 'infograph' ? 'px-2 py-1' : 'cursor-pointer hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-200 group'} inline-edit`}
+        onClick={() => handleInlineEdit(order.id, field, order[field] || '')}
+        title={user?.role === 'infograph' ? "Lecture seule" : "Cliquer pour modifier (Entrée pour valider, Échap pour annuler)"}
+      >
+        <div className="flex items-center justify-between">
+          <span>{displayValue}{unit}</span>
+          {user?.role !== 'infograph' && (
+            <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          )}
         </div>
       </div>
     )
@@ -334,8 +537,19 @@ const DashboardPage = () => {
         <div className="flex items-center gap-2 inline-edit">
           <select
             value={tempValue || ''}
-            onChange={(e) => handleTempValueChange(order.id, 'statut', e.target.value)}
-            className="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+            onChange={(e) => {
+              const newValue = e.target.value
+              handleTempValueChange(order.id, 'statut', newValue)
+              // Auto-save on select change
+              saveInlineEdit(order.id, 'statut', newValue)
+            }}
+            onBlur={() => cancelInlineEdit(order.id, 'statut')}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                cancelInlineEdit(order.id, 'statut')
+              }
+            }}
+            className="text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             autoFocus
           >
             {statusOptions.map(status => (
@@ -344,39 +558,23 @@ const DashboardPage = () => {
               </option>
             ))}
           </select>
-          <button
-            onClick={() => saveInlineEdit(order.id, 'statut', tempValue)}
-            className="text-green-600 hover:text-green-800 p-1"
-            title="Sauvegarder"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </button>
-          <button
-            onClick={() => cancelInlineEdit(order.id, 'statut')}
-            className="text-red-600 hover:text-red-800 p-1"
-            title="Annuler"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
         </div>
       )
     }
 
     return (
       <div 
-        className="cursor-pointer hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-200 group inline-edit"
+        className={`${user?.role === 'infograph' ? 'px-2 py-1' : 'cursor-pointer hover:bg-gray-100 px-2 py-1 rounded transition-colors duration-200 group'} inline-edit`}
         onClick={() => handleInlineEdit(order.id, 'statut', order.statut)}
-        title="Cliquer pour modifier"
+        title={user?.role === 'infograph' ? "Lecture seule" : "Cliquer pour modifier"}
       >
         <div className="flex items-center gap-2">
           {getStatusBadge(order.statut)}
-          <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-          </svg>
+          {user?.role !== 'infograph' && (
+            <svg className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          )}
         </div>
       </div>
     )
@@ -393,13 +591,15 @@ const DashboardPage = () => {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">Tableau de bord des commandes</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-3xl font-bold text-gray-900">Tableau de bord des commandes</h1>
+        </div>
         
         {/* Statistics Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="text-2xl font-bold text-blue-600">{stats.total || 0}</div>
-            <div className="text-sm text-gray-600">Total</div>
+            <div className="text-sm text-gray-600">Total actives</div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="text-2xl font-bold text-yellow-600">{stats.en_attente || 0}</div>
@@ -413,40 +613,35 @@ const DashboardPage = () => {
             <div className="text-2xl font-bold text-green-600">{stats.termine || 0}</div>
             <div className="text-sm text-gray-600">Terminé</div>
           </div>
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="text-2xl font-bold text-purple-600">{stats.livre || 0}</div>
-            <div className="text-sm text-gray-600">Livré</div>
-          </div>
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="text-2xl font-bold text-red-600">{stats.annule || 0}</div>
-            <div className="text-sm text-gray-600">Annulé</div>
-          </div>
         </div>
 
         {/* Color Legend */}
         <div className="bg-white p-4 rounded-lg shadow mb-6">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">Indicateurs de délai de livraison :</h3>
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">Indicateurs de délai de livraison (basé sur le temps de travail estimé) :</h3>
           <div className="flex flex-wrap gap-4 text-sm">
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-red-200 border-l-2 border-red-500 rounded"></div>
-              <span className="text-gray-700">En retard (dépassé)</span>
+              <span className="text-gray-700">Impossible de finir à temps (trop tard pour commencer)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-orange-200 border-l-2 border-orange-500 rounded"></div>
-              <span className="text-gray-700">≤ 1h</span>
+              <span className="text-gray-700">≤ 30min avant de devoir commencer</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-yellow-200 border-l-2 border-yellow-500 rounded"></div>
-              <span className="text-gray-700">≤ 2h</span>
+              <span className="text-gray-700">≤ 1h avant de devoir commencer</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-gray-50 border-l-2 border-gray-300 rounded"></div>
-              <span className="text-gray-700">&gt; 2h ou pas de délai</span>
+              <span className="text-gray-700">Temps suffisant disponible</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-green-100 border-l-2 border-green-400 rounded"></div>
               <span className="text-gray-700">Terminé/Livré</span>
             </div>
+          </div>
+          <div className="mt-2 text-xs text-gray-600">
+            <strong>Note:</strong> Le calcul utilise le temps de travail estimé de chaque commande. Si aucun temps n'est défini, 2h par défaut sont utilisées.
           </div>
         </div>
 
@@ -454,6 +649,18 @@ const DashboardPage = () => {
         <div className="bg-white p-4 rounded-lg shadow mb-6">
           <div className="flex flex-wrap gap-3 items-center justify-between">
             <div className="flex flex-wrap gap-3">
+              {/* Time Filter - First Priority */}
+              <select
+                value={filters.timeFilter}
+                onChange={(e) => setFilters({...filters, timeFilter: e.target.value})}
+                className="px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:border-blue-500 text-sm font-medium bg-blue-50"
+              >
+                <option value="active">Commandes actives</option>
+                <option value="last30days">30 derniers jours</option>
+                <option value="last90days">90 derniers jours</option>
+                <option value="all">Toutes les commandes</option>
+              </select>
+
               <select
                 value={filters.statut}
                 onChange={(e) => setFilters({...filters, statut: e.target.value})}
@@ -486,8 +693,8 @@ const DashboardPage = () => {
               <input
                 type="text"
                 placeholder="Infographe"
-                value={filters.infographe}
-                onChange={(e) => setFilters({...filters, infographe: e.target.value})}
+                value={filters.infograph}
+                onChange={(e) => setFilters({...filters, infograph: e.target.value})}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm"
               />
               
@@ -518,15 +725,16 @@ const DashboardPage = () => {
               </select>
 
               {/* Clear Filters Button */}
-              {(filters.statut || filters.commercial || filters.client || filters.infographe || filters.atelier || filters.etape) && (
+              {(filters.statut || filters.commercial || filters.client || filters.infograph || filters.atelier || filters.etape || filters.timeFilter !== 'all') && (
                 <button
                   onClick={() => setFilters({
                     statut: '',
                     commercial: '',
                     client: '',
                     atelier: '',
-                    infographe: '',
-                    etape: ''
+                    infograph: '',
+                    etape: '',
+                    timeFilter: 'all'
                   })}
                   className="text-sm text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-md transition-colors duration-200"
                 >
@@ -535,9 +743,11 @@ const DashboardPage = () => {
               )}
             </div>
             
-            <Button onClick={handleCreateOrder}>
-              Nouvelle commande
-            </Button>
+            {canCreateOrders() && (
+              <Button onClick={handleCreateOrder}>
+                Nouvelle commande
+              </Button>
+            )}
           </div>
         </div>
 
@@ -559,16 +769,28 @@ const DashboardPage = () => {
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-lg font-semibold text-gray-900">{order.numero_pms}</h3>
-                    <div className="inline-edit">
-                      {renderInlineStatus(order)}
-                    </div>
+                    {visibleColumns.statut && (
+                      <div className="inline-edit">
+                        {renderInlineStatus(order)}
+                      </div>
+                    )}
                   </div>
                   
                   <div className="space-y-1 text-sm text-gray-600 mb-3">
-                    <p><span className="font-medium">Client:</span> {order.client}</p>
-                    <p><span className="font-medium">Commercial:</span> {order.commercial_en_charge}</p>
-                    {order.infographe_en_charge && (
-                      <p><span className="font-medium">Infographe:</span> {order.infographe_en_charge}</p>
+                    {order.clientInfo?.code_client && (
+                      <p><span className="font-medium">Code client:</span> {order.clientInfo.code_client}</p>
+                    )}
+                    {visibleColumns.nom_client && (
+                      <p><span className="font-medium">Client:</span> {order.clientInfo?.nom || order.client}</p>
+                    )}
+                    {order.clientInfo?.numero_affaire && (
+                      <p><span className="font-medium">Numéro d'affaire:</span> {order.clientInfo.numero_affaire}</p>
+                    )}
+                    {visibleColumns.commercial_en_charge && (
+                      <p><span className="font-medium">Commercial:</span> {order.commercial_en_charge}</p>
+                    )}
+                    {visibleColumns.infograph_en_charge && order.infograph_en_charge && (
+                      <p><span className="font-medium">Infographe:</span> {order.infograph_en_charge}</p>
                     )}
                     <div>
                       <span className="font-medium">Produits:</span>
@@ -587,34 +809,79 @@ const DashboardPage = () => {
                         <span className="ml-2 text-gray-500">Aucun produit associé</span>
                       )}
                     </div>
-                    <div>
-                      <span className="font-medium">Étape:</span> 
-                      <span className="ml-2 inline-edit">
-                        {renderInlineSelect(
-                          order, 
-                          'etape', 
-                          etapeOptions,
-                          order.etape || '-'
-                        )}
-                      </span>
-                    </div>
-                    {order.atelier_concerne && (
+                    {visibleColumns.etape && (
+                      <div>
+                        <span className="font-medium">Étape:</span> 
+                        <span className="ml-2 inline-edit">
+                          {renderInlineSelect(
+                            order, 
+                            'etape', 
+                            etapeOptions,
+                            order.etape || '-'
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {visibleColumns.atelier_concerne && order.atelier_concerne && (
                       <p><span className="font-medium">Atelier:</span> {order.atelier_concerne}</p>
                     )}
-                    <div>
-                      <span className="font-medium">Livraison estimée:</span> 
-                      <span className="ml-2 inline-edit">
-                        {renderInlineDate(order, 'date_limite_livraison_estimee')}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="font-medium">Livraison attendue:</span> 
-                      <span className="ml-2 inline-edit">
-                        {renderInlineDate(order, 'date_limite_livraison_attendue')}
-                      </span>
-                    </div>
-                    {order.option_finition && (
+                    {visibleColumns.date_limite_livraison_estimee && (
+                      <div>
+                        <span className="font-medium">Livraison estimée:</span> 
+                        <span className="ml-2 inline-edit">
+                          {renderInlineDate(order, 'date_limite_livraison_estimee')}
+                        </span>
+                      </div>
+                    )}
+                    {visibleColumns.date_limite_livraison_attendue && (
+                      <div>
+                        <span className="font-medium">Délai souhaité:</span> 
+                        <span className="ml-2 inline-edit">
+                          {renderInlineDate(order, 'date_limite_livraison_attendue')}
+                        </span>
+                      </div>
+                    )}
+                    {visibleColumns.estimated_work_time_minutes && (
+                      <div>
+                        <span className="font-medium">Temps estimé:</span> 
+                        <span className="ml-2 inline-edit">
+                          {renderInlineNumber(
+                            order, 
+                            'estimated_work_time_minutes', 
+                            order.estimated_work_time_minutes ? 
+                              `${Math.round(order.estimated_work_time_minutes / 60 * 10) / 10}h` : '-'
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {visibleColumns.option_finition && order.option_finition && (
                       <p><span className="font-medium">Finitions:</span> {order.option_finition}</p>
+                    )}
+                    {visibleColumns.bat && order.bat && (
+                      <div>
+                        <span className="font-medium">BAT:</span> 
+                        <span className="ml-2 inline-edit">
+                          {renderInlineSelect(
+                            order, 
+                            'bat', 
+                            batOptions,
+                            batOptions.find(b => b.value === order.bat)?.label || '-'
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {visibleColumns.express && order.express && (
+                      <div>
+                        <span className="font-medium">Express:</span> 
+                        <span className="ml-2 inline-edit">
+                          {renderInlineSelect(
+                            order, 
+                            'express', 
+                            expressOptions,
+                            expressOptions.find(e => e.value === order.express)?.label || '-'
+                          )}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -622,24 +889,28 @@ const DashboardPage = () => {
               
               <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t">
                 <div className="action-button flex gap-2 w-full">
-                  <button
-                    onClick={() => handleEditOrder(order)}
-                    className="flex-1 flex items-center justify-center gap-2 text-indigo-600 hover:text-indigo-900 bg-indigo-100 hover:bg-indigo-200 px-4 py-2 rounded-lg transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    Modifier
-                  </button>
-                  <button
-                    onClick={() => handleDeleteOrder(order.id)}
-                    className="flex-1 flex items-center justify-center gap-2 text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-4 py-2 rounded-lg transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    Supprimer
-                  </button>
+                  {canEditOrders() && (
+                    <button
+                      onClick={() => handleEditOrder(order)}
+                      className="flex-1 flex items-center justify-center gap-2 text-indigo-600 hover:text-indigo-900 bg-indigo-100 hover:bg-indigo-200 px-4 py-2 rounded-lg transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                      Modifier
+                    </button>
+                  )}
+                  {canDeleteOrders() && (
+                    <button
+                      onClick={() => handleDeleteOrder(order.id)}
+                      className="flex-1 flex items-center justify-center gap-2 text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-4 py-2 rounded-lg transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Supprimer
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -661,36 +932,81 @@ const DashboardPage = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Commande
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Client
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Commercial
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Infographe
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Étape
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Atelier
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Statut
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Livraison estimée
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Livraison attendue
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Finitions
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  {visibleColumns.code_client && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Code Client
+                    </th>
+                  )}
+                  {visibleColumns.nom_client && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Client
+                    </th>
+                  )}
+                  {visibleColumns.numero_affaire && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Numéro d'affaire
+                    </th>
+                  )}
+                  {visibleColumns.commercial_en_charge && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Commercial
+                    </th>
+                  )}
+                  {visibleColumns.infograph_en_charge && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Infographe
+                    </th>
+                  )}
+                  {visibleColumns.etape && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Étape
+                    </th>
+                  )}
+                  {visibleColumns.atelier_concerne && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Atelier
+                    </th>
+                  )}
+                  {visibleColumns.statut && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Statut
+                    </th>
+                  )}
+                  {visibleColumns.date_limite_livraison_estimee && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Livraison estimée
+                    </th>
+                  )}
+                  {visibleColumns.date_limite_livraison_attendue && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Délai souhaité
+                    </th>
+                  )}
+                  {visibleColumns.estimated_work_time_minutes && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Temps estimé
+                    </th>
+                  )}
+                  {visibleColumns.option_finition && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Finitions
+                    </th>
+                  )}
+                  {visibleColumns.bat && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      BAT
+                    </th>
+                  )}
+                  {visibleColumns.express && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Express
+                    </th>
+                  )}
+                  {(canEditOrders() || canDeleteOrders()) && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -725,56 +1041,121 @@ const DashboardPage = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {order.client}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {order.commercial_en_charge}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {order.infographe_en_charge || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="inline-edit">
-                        {renderInlineSelect(
+                    {visibleColumns.code_client && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.clientInfo?.code_client || '-'}
+                      </td>
+                    )}
+                    {visibleColumns.nom_client && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.clientInfo?.nom || order.client}
+                      </td>
+                    )}
+                    {visibleColumns.numero_affaire && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.clientInfo?.numero_affaire || '-'}
+                      </td>
+                    )}
+                    {visibleColumns.commercial_en_charge && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.commercial_en_charge}
+                      </td>
+                    )}
+                    {visibleColumns.infograph_en_charge && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.infograph_en_charge || '-'}
+                      </td>
+                    )}
+                    {visibleColumns.etape && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div className="inline-edit">
+                          {renderInlineSelect(
+                            order, 
+                            'etape', 
+                            etapeOptions,
+                            order.etape || '-'
+                          )}
+                        </div>
+                      </td>
+                    )}
+                    {visibleColumns.atelier_concerne && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {order.atelier_concerne || '-'}
+                      </td>
+                    )}
+                    {visibleColumns.statut && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="inline-edit">
+                          {renderInlineStatus(order)}
+                        </div>
+                      </td>
+                    )}
+                    {visibleColumns.date_limite_livraison_estimee && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {renderInlineDate(order, 'date_limite_livraison_estimee')}
+                      </td>
+                    )}
+                    {visibleColumns.date_limite_livraison_attendue && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {renderInlineDate(order, 'date_limite_livraison_attendue')}
+                      </td>
+                    )}
+                    {visibleColumns.estimated_work_time_minutes && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {renderInlineNumber(
                           order, 
-                          'etape', 
-                          etapeOptions,
-                          order.etape || '-'
+                          'estimated_work_time_minutes', 
+                          order.estimated_work_time_minutes ? 
+                            `${Math.round(order.estimated_work_time_minutes / 60 * 10) / 10}h` : '-'
                         )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {order.atelier_concerne || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="inline-edit">
-                        {renderInlineStatus(order)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {renderInlineDate(order, 'date_limite_livraison_estimee')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {renderInlineDate(order, 'date_limite_livraison_attendue')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 max-w-xs truncate">
-                      {order.option_finition || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                      <div className="action-button">
-                        
-                        <button
-                          onClick={() => handleDeleteOrder(order.id)}
-                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                          Supprimer
-                        </button>
-                      </div>
-                    </td>
+                      </td>
+                    )}
+                    {visibleColumns.option_finition && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 max-w-xs truncate">
+                        {order.option_finition || '-'}
+                      </td>
+                    )}
+                    {visibleColumns.bat && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div className="inline-edit">
+                          {renderInlineSelect(
+                            order, 
+                            'bat', 
+                            batOptions,
+                            order.bat ? batOptions.find(b => b.value === order.bat)?.label : '-'
+                          )}
+                        </div>
+                      </td>
+                    )}
+                    {visibleColumns.express && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div className="inline-edit">
+                          {renderInlineSelect(
+                            order, 
+                            'express', 
+                            expressOptions,
+                            order.express ? expressOptions.find(e => e.value === order.express)?.label : '-'
+                          )}
+                        </div>
+                      </td>
+                    )}
+                    {(canEditOrders() || canDeleteOrders()) && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                        <div className="action-button">
+                          {canDeleteOrders() && (
+                            <button
+                              onClick={() => handleDeleteOrder(order.id)}
+                              className="inline-flex items-center gap-1 text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Supprimer
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -845,6 +1226,7 @@ const DashboardPage = () => {
           }}
           formatDate={formatDate}
           getStatusBadge={getStatusBadge}
+          etapeOptions={etapeOptions}
         />
       )}
 
@@ -867,6 +1249,8 @@ const DashboardPage = () => {
           statusOptions={statusOptions}
           atelierOptions={atelierOptions}
           etapeOptions={etapeOptions}
+          batOptions={batOptions}
+          expressOptions={expressOptions}
         />
       )}
 
@@ -885,772 +1269,9 @@ const DashboardPage = () => {
   )
 }
 
-// Order View Modal Component
-const OrderViewModal = ({ order, onClose, onEdit, formatDate, getStatusBadge }) => {
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-all duration-300 ease-out overflow-y-auto h-full w-full z-50 animate-in fade-in">
-      <div className="relative top-8 mx-auto p-0 w-11/12 max-w-4xl min-h-[calc(100vh-4rem)] animate-in slide-in-from-top-4 duration-500">
-        <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden transform transition-all duration-300 hover:shadow-3xl">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 px-8 py-6 text-white relative overflow-hidden">
-            {/* Background decoration */}
-            <div className="absolute inset-0 bg-gradient-to-r from-white/5 to-transparent"></div>
-            <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-            
-            <div className="flex items-center justify-between relative">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm border border-white/30 shadow-lg">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-2xl font-bold tracking-tight">
-                    Détails de la commande
-                  </h3>
-                  <p className="text-indigo-100 text-sm mt-1 font-medium">
-                    Commande {order.numero_pms}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={onEdit}
-                  className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-xl transition-all duration-200 group border border-white/20 backdrop-blur-sm"
-                >
-                  <svg className="w-4 h-4 group-hover:rotate-12 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  Modifier
-                </button>
-                <button
-                  onClick={onClose}
-                  className="p-3 hover:bg-white/20 rounded-xl transition-all duration-200 group border border-white/20 backdrop-blur-sm"
-                >
-                  <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
 
-          {/* Content */}
-          <div className="p-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Left Column - Basic Information */}
-              <div className="space-y-6">
-                {/* Basic Info Section */}
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-blue-100 rounded-lg shadow-sm border border-blue-200">
-                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Informations générales</h4>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-blue-200/50">
-                      <span className="font-medium text-gray-700">Numéro PMS:</span>
-                      <span className="text-gray-900 font-semibold">{order.numero_pms}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-blue-200/50">
-                      <span className="font-medium text-gray-700">Client:</span>
-                      <span className="text-gray-900">{order.client}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-blue-200/50">
-                      <span className="font-medium text-gray-700">Commercial:</span>
-                      <span className="text-gray-900">{order.commercial_en_charge}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-blue-200/50">
-                      <span className="font-medium text-gray-700">Infographe:</span>
-                      <span className="text-gray-900">{order.infographe_en_charge || '-'}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="font-medium text-gray-700">Statut:</span>
-                      <div>{getStatusBadge(order.statut)}</div>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Product Details Section */}
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-green-100 rounded-lg shadow-sm border border-green-200">
-                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                      </svg>
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Produits commandés</h4>
-                  </div>
-                  <div className="space-y-4">
-                    {order.products && order.products.length > 0 ? (
-                      order.products.map((product, index) => (
-                        <div key={index} className="bg-white p-4 rounded-lg border border-green-200/50 shadow-sm">
-                          <div className="flex justify-between items-start mb-2">
-                            <h5 className="font-medium text-gray-800">{product.name}</h5>
-                            <span className="text-sm text-gray-500">#{product.id}</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <span className="font-medium text-gray-600">Quantité:</span>
-                              <span className="ml-2 text-gray-900">{product.orderProduct?.quantity || 'N/A'}</span>
-                            </div>
-                            <div>
-                              <span className="font-medium text-gray-600">Temps estimé:</span>
-                              <span className="ml-2 text-gray-900">{product.estimated_creation_time}h</span>
-                            </div>
-                            {product.orderProduct?.unit_price && (
-                              <div className="col-span-2">
-                                <span className="font-medium text-gray-600">Prix unitaire:</span>
-                                <span className="ml-2 text-gray-900">{product.orderProduct.unit_price}€</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="bg-white p-4 rounded-lg border border-green-200/50 text-center text-gray-500">
-                        Aucun produit associé à cette commande
-                      </div>
-                    )}
-                    <div className="py-2 border-t border-green-200/50">
-                      <span className="font-medium text-gray-700 block mb-2">Options de finition:</span>
-                      <p className="text-gray-900 bg-white p-3 rounded-lg border border-green-200/50">
-                        {order.option_finition || '-'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
-              {/* Right Column - Production Information */}
-              <div className="space-y-6">
-                {/* Production Section */}
-                <div className="bg-gradient-to-br from-purple-50 to-violet-50 rounded-xl p-6 border border-purple-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-purple-100 rounded-lg shadow-sm border border-purple-200">
-                      <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Production</h4>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                      <span className="font-medium text-gray-700">Étape actuelle:</span>
-                      <span className="text-gray-900 bg-white px-3 py-1 rounded-full border border-purple-200/50 font-medium">
-                        {order.etape || '-'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                      <span className="font-medium text-gray-700">Atelier concerné:</span>
-                      <span className="text-gray-900">{order.atelier_concerne || '-'}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                      <span className="font-medium text-gray-700">Livraison estimée:</span>
-                      <span className="text-gray-900">{formatDate(order.date_limite_livraison_estimee)}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="font-medium text-gray-700">Livraison attendue:</span>
-                      <span className="text-gray-900">{formatDate(order.date_limite_livraison_attendue)}</span>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Additional Information Section */}
-                <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-6 border border-orange-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-orange-100 rounded-lg shadow-sm border border-orange-200">
-                      <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Informations complémentaires</h4>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-orange-200/50">
-                      <span className="font-medium text-gray-700">Créé le:</span>
-                      <span className="text-gray-900">{formatDate(order.createdAt)}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-orange-200/50">
-                      <span className="font-medium text-gray-700">Modifié le:</span>
-                      <span className="text-gray-900">{formatDate(order.updatedAt)}</span>
-                    </div>
-                    {order.commentaires && (
-                      <div className="py-2">
-                        <span className="font-medium text-gray-700 block mb-2">Commentaires:</span>
-                        <p className="text-gray-900 bg-white p-3 rounded-lg border border-orange-200/50">
-                          {order.commentaires}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-end gap-4 pt-8 border-t border-gray-200 mt-8">
-              <Button
-                variant="secondary"
-                onClick={onClose}
-                className="min-w-[120px]"
-              >
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Fermer
-                </div>
-              </Button>
-              <Button
-                onClick={onEdit}
-                className="min-w-[140px]"
-              >
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  Modifier
-                </div>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Order Modal Component
-const OrderModal = ({ order, onClose, onSave, statusOptions, atelierOptions, etapeOptions }) => {
-  const [formData, setFormData] = useState({
-    commercial_en_charge: '',
-    infographe_en_charge: '',
-    numero_pms: '',
-    client: '',
-    date_limite_livraison_estimee: '',
-    date_limite_livraison_attendue: '',
-    etape: '',
-    option_finition: '',
-    atelier_concerne: '',
-    statut: 'en_attente',
-    commentaires: ''
-  })
-  const [selectedProducts, setSelectedProducts] = useState([])
-  const [availableProducts, setAvailableProducts] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [productsLoading, setProductsLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  // Fetch available products
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        setProductsLoading(true)
-        const products = await productAPI.getProducts()
-        setAvailableProducts(products)
-      } catch (err) {
-        console.error('Error fetching products:', err)
-        setError('Erreur lors du chargement des produits')
-      } finally {
-        setProductsLoading(false)
-      }
-    }
-    fetchProducts()
-  }, [])
-
-  useEffect(() => {
-    if (order) {
-      setFormData({
-        commercial_en_charge: order.commercial_en_charge || '',
-        infographe_en_charge: order.infographe_en_charge || '',
-        numero_pms: order.numero_pms || '',
-        client: order.client || '',
-        date_limite_livraison_estimee: order.date_limite_livraison_estimee ? 
-          new Date(order.date_limite_livraison_estimee).toISOString().slice(0, 16) : '',
-        date_limite_livraison_attendue: order.date_limite_livraison_attendue ? 
-          new Date(order.date_limite_livraison_attendue).toISOString().slice(0, 16) : '',
-        etape: order.etape || '',
-        option_finition: order.option_finition || '',
-        atelier_concerne: order.atelier_concerne || '',
-        statut: order.statut || 'en_attente',
-        commentaires: order.commentaires || ''
-      })
-      
-      // If editing existing order with products, populate selectedProducts
-      if (order.products && order.products.length > 0) {
-        const orderProducts = order.products.map(product => ({
-          productId: product.id,
-          quantity: product.orderProduct?.quantity || 1,
-          unitPrice: product.orderProduct?.unit_price || null
-        }))
-        setSelectedProducts(orderProducts)
-      }
-    }
-  }, [order])
-
-  const addProduct = () => {
-    setSelectedProducts([...selectedProducts, { productId: '', quantity: 1, unitPrice: null }])
-  }
-
-  const removeProduct = (index) => {
-    setSelectedProducts(selectedProducts.filter((_, i) => i !== index))
-  }
-
-  const updateProduct = (index, field, value) => {
-    const updated = [...selectedProducts]
-    updated[index] = { ...updated[index], [field]: value }
-    setSelectedProducts(updated)
-  }
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-
-    // Validate that at least one product is selected
-    if (selectedProducts.length === 0) {
-      setError('Veuillez sélectionner au moins un produit')
-      setLoading(false)
-      return
-    }
-
-    // Validate that all selected products have valid data
-    for (let i = 0; i < selectedProducts.length; i++) {
-      const product = selectedProducts[i]
-      if (!product.productId || !product.quantity || product.quantity <= 0) {
-        setError(`Produit ${i + 1}: Veuillez sélectionner un produit et spécifier une quantité valide`)
-        setLoading(false)
-        return
-      }
-    }
-
-    try {
-      const submitData = {
-        ...formData,
-        products: selectedProducts
-      }
-      
-      if (order) {
-        await orderAPI.updateOrder(order.id, submitData)
-      } else {
-        await orderAPI.createOrder(submitData)
-      }
-      onSave()
-    } catch (err) {
-      setError(err.message || 'Erreur lors de la sauvegarde')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-all duration-300 ease-out overflow-y-auto h-full w-full z-50 animate-in fade-in">
-      <div className="relative top-8 mx-auto p-0 w-11/12 max-w-5xl min-h-[calc(100vh-4rem)] animate-in slide-in-from-top-4 duration-500">
-        <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden transform transition-all duration-300 hover:shadow-3xl">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 px-8 py-6 text-white relative overflow-hidden">
-            {/* Background decoration */}
-            <div className="absolute inset-0 bg-gradient-to-r from-white/5 to-transparent"></div>
-            <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-            
-            <div className="flex items-center justify-between relative">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm border border-white/30 shadow-lg">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-2xl font-bold tracking-tight">
-                    {order ? 'Modifier la commande' : 'Nouvelle commande'}
-                  </h3>
-                  <p className="text-blue-100 text-sm mt-1 font-medium">
-                    {order ? `Commande ${order.numero_pms}` : 'Créer une nouvelle commande dans le système'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={onClose}
-                className="p-3 hover:bg-white/20 rounded-xl transition-all duration-200 group border border-white/20 backdrop-blur-sm"
-              >
-                <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="p-8">
-            {error && (
-              <div className="bg-gradient-to-r from-red-50 to-pink-50 border border-red-200 text-red-700 px-6 py-4 rounded-xl mb-6 flex items-center gap-3 shadow-sm animate-in slide-in-from-top-2 duration-300">
-                <div className="p-1 bg-red-100 rounded-lg">
-                  <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="font-medium">Erreur de validation</p>
-                  <p className="text-sm text-red-600">{error}</p>
-                </div>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-8">
-              {/* Section 1: Informations de base */}
-              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-blue-100 rounded-lg shadow-sm border border-blue-200">
-                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <h4 className="text-lg font-semibold text-gray-800">Informations de base</h4>
-                  <div className="flex-1 h-px bg-gradient-to-r from-blue-200 to-transparent"></div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Input
-                    label="Numéro PMS *"
-                    value={formData.numero_pms}
-                    onChange={(e) => handleChange('numero_pms', e.target.value)}
-                    required
-                    placeholder="Ex: PMS-2024-001"
-                  />
-                  
-                  <Input
-                    label="Client *"
-                    value={formData.client}
-                    onChange={(e) => handleChange('client', e.target.value)}
-                    required
-                    placeholder="Nom du client"
-                  />
-                  
-                  <Input
-                    label="Commercial en charge *"
-                    value={formData.commercial_en_charge}
-                    onChange={(e) => handleChange('commercial_en_charge', e.target.value)}
-                    required
-                    placeholder="Nom du commercial"
-                  />
-                  
-                  <Input
-                    label="Infographe en charge"
-                    value={formData.infographe_en_charge}
-                    onChange={(e) => handleChange('infographe_en_charge', e.target.value)}
-                    placeholder="Nom de l'infographe"
-                  />
-                </div>
-              </div>
-
-              {/* Section 2: Sélection des produits */}
-              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-100 rounded-lg shadow-sm border border-green-200">
-                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                      </svg>
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Sélection des produits</h4>
-                    <div className="flex-1 h-px bg-gradient-to-r from-green-200 to-transparent"></div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={addProduct}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 text-sm font-medium shadow-sm"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    Ajouter produit
-                  </button>
-                </div>
-
-                {productsLoading ? (
-                  <div className="text-center py-8">
-                    <div className="text-gray-500">Chargement des produits...</div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {selectedProducts.length === 0 ? (
-                      <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                        <div className="text-gray-500 mb-2">Aucun produit sélectionné</div>
-                        <button
-                          type="button"
-                          onClick={addProduct}
-                          className="text-green-600 hover:text-green-700 font-medium"
-                        >
-                          Cliquez ici pour ajouter votre premier produit
-                        </button>
-                      </div>
-                    ) : (
-                      selectedProducts.map((product, index) => (
-                        <div key={index} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-                          <div className="flex items-center justify-between mb-4">
-                            <h5 className="font-medium text-gray-800">Produit {index + 1}</h5>
-                            <button
-                              type="button"
-                              onClick={() => removeProduct(index)}
-                              className="text-red-600 hover:text-red-800 p-1 hover:bg-red-50 rounded transition-colors duration-200"
-                              title="Supprimer ce produit"
-                            >
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Produit *
-                              </label>
-                              <select
-                                value={product.productId}
-                                onChange={(e) => updateProduct(index, 'productId', parseInt(e.target.value))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                required
-                              >
-                                <option value="">Sélectionner un produit</option>
-                                {availableProducts.map(p => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.name} ({p.estimated_creation_time}h)
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Quantité *
-                              </label>
-                              <input
-                                type="number"
-                                value={product.quantity}
-                                onChange={(e) => updateProduct(index, 'quantity', parseInt(e.target.value) || 1)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                min="1"
-                                required
-                                placeholder="Ex: 1000"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Prix unitaire (optionnel)
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                value={product.unitPrice || ''}
-                                onChange={(e) => updateProduct(index, 'unitPrice', parseFloat(e.target.value) || null)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                                placeholder="Ex: 0.50"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-
-                <div className="mt-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Statut
-                  </label>
-                  <div className="relative">
-                    <select
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white shadow-sm transition-all duration-200 hover:border-gray-400"
-                      value={formData.statut}
-                      onChange={(e) => handleChange('statut', e.target.value)}
-                    >
-                      {statusOptions.map(status => (
-                        <option key={status.value} value={status.value}>
-                          {status.label}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Section 3: Planning et production */}
-              <div className="bg-gradient-to-br from-purple-50 to-violet-50 rounded-xl p-6 border border-purple-200 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-purple-100 rounded-lg shadow-sm border border-purple-200">
-                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <h4 className="text-lg font-semibold text-gray-800">Planning et production</h4>
-                  <div className="flex-1 h-px bg-gradient-to-r from-purple-200 to-transparent"></div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Input
-                    label="Date limite livraison estimée"
-                    type="datetime-local"
-                    value={formData.date_limite_livraison_estimee}
-                    onChange={(e) => handleChange('date_limite_livraison_estimee', e.target.value)}
-                  />
-                  
-                  <Input
-                    label="Date limite livraison attendue"
-                    type="datetime-local"
-                    value={formData.date_limite_livraison_attendue}
-                    onChange={(e) => handleChange('date_limite_livraison_attendue', e.target.value)}
-                  />
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Étape actuelle
-                    </label>
-                    <div className="relative">
-                      <select
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent appearance-none bg-white shadow-sm transition-all duration-200 hover:border-gray-400"
-                        value={formData.etape}
-                        onChange={(e) => handleChange('etape', e.target.value)}
-                      >
-                        <option value="">Sélectionner une étape</option>
-                        {etapeOptions.map(etape => (
-                          <option key={etape} value={etape}>
-                            {etape}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Atelier concerné
-                    </label>
-                    <div className="relative">
-                      <select
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent appearance-none bg-white shadow-sm transition-all duration-200 hover:border-gray-400"
-                        value={formData.atelier_concerne}
-                        onChange={(e) => handleChange('atelier_concerne', e.target.value)}
-                      >
-                        <option value="">Sélectionner un atelier</option>
-                        {atelierOptions.map(atelier => (
-                          <option key={atelier} value={atelier}>
-                            {atelier}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Section 4: Options et commentaires */}
-              <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-6 border border-orange-200 shadow-sm hover:shadow-md transition-all duration-300">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-orange-100 rounded-lg shadow-sm border border-orange-200">
-                    <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                    </svg>
-                  </div>
-                  <h4 className="text-lg font-semibold text-gray-800">Options et commentaires</h4>
-                  <div className="flex-1 h-px bg-gradient-to-r from-orange-200 to-transparent"></div>
-                </div>
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Options de finition
-                    </label>
-                    <textarea
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none transition-all duration-200 hover:border-gray-400 bg-white shadow-sm"
-                      rows="3"
-                      value={formData.option_finition}
-                      onChange={(e) => handleChange('option_finition', e.target.value)}
-                      placeholder="Pelliculage, vernissage, découpe, reliure, etc..."
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Commentaires supplémentaires
-                    </label>
-                    <textarea
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none transition-all duration-200 hover:border-gray-400 bg-white shadow-sm"
-                      rows="4"
-                      value={formData.commentaires}
-                      onChange={(e) => handleChange('commentaires', e.target.value)}
-                      placeholder="Notes importantes, instructions spéciales, contraintes particulières..."
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer with buttons */}
-              <div className="flex justify-end gap-4 pt-8 border-t border-gray-200 bg-gradient-to-r from-gray-50 to-white rounded-b-xl -mx-8 -mb-8 px-8 pb-8">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={onClose}
-                  disabled={loading}
-                  className="min-w-[120px]"
-                >
-                  <div className="flex items-center gap-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                    Annuler
-                  </div>
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="relative min-w-[180px]"
-                >
-                  <div className="flex items-center gap-2">
-                    {loading ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Sauvegarde...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        {order ? 'Modifier la commande' : 'Créer la commande'}
-                      </>
-                    )}
-                  </div>
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export default DashboardPage

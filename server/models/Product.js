@@ -44,6 +44,20 @@ module.exports = (sequelize) => {
       foreignKey: 'product_id',
       as: 'orderProducts'
     });
+
+    // Product belongs to many finitions through product_finitions
+    Product.belongsToMany(models.Finition, {
+      through: models.ProductFinition,
+      foreignKey: 'product_id',
+      otherKey: 'finition_id',
+      as: 'finitions'
+    });
+    
+    // Product has many product_finitions
+    Product.hasMany(models.ProductFinition, {
+      foreignKey: 'product_id',
+      as: 'productFinitions'
+    });
   };
 
   return Product;

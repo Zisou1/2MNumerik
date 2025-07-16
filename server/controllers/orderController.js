@@ -1,4 +1,4 @@
-const { Order, Product, OrderProduct } = require('../models');
+const { Order, Product, OrderProduct, Client } = require('../models');
 const { Op, Sequelize } = require('sequelize');
 
 class OrderController {
@@ -12,6 +12,7 @@ class OrderController {
         atelier,
         infographe,
         etape,
+        timeFilter,
         page = 1, 
         limit = 10,
         sortBy = 'date_limite_livraison_estimee',
@@ -22,12 +23,62 @@ class OrderController {
 
       // Build where clause for filtering
       const whereClause = {};
+      const includeClause = [];
+      
       if (statut) whereClause.statut = statut;
       if (commercial) whereClause.commercial_en_charge = { [Op.like]: `%${commercial}%` };
-      if (client) whereClause.client = { [Op.like]: `%${client}%` };
       if (atelier) whereClause.atelier_concerne = atelier;
       if (infographe) whereClause.infographe_en_charge = { [Op.like]: `%${infographe}%` };
       if (etape) whereClause.etape = etape;
+      
+      // Handle client filtering - search both legacy client field and new client relationship
+      if (client) {
+        whereClause[Op.or] = [
+          { client: { [Op.like]: `%${client}%` } }, // Legacy client field
+          { '$clientInfo.nom$': { [Op.like]: `%${client}%` } } // New client relationship
+        ];
+      }
+
+      // Time-based filtering
+      if (timeFilter) {
+        const now = new Date();
+        let dateCondition = {};
+        
+        switch (timeFilter) {
+          case 'active':
+            // Show only orders that are not finished (not 'termine', 'livre', or 'annule')
+            whereClause.statut = { [Op.notIn]: ['termine', 'livre', 'annule'] };
+            break;
+          case 'last30days':
+            const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+            dateCondition = {
+              [Op.or]: [
+                // Orders created in last 30 days
+                { createdAt: { [Op.gte]: thirtyDaysAgo } },
+                // Or active orders regardless of age
+                { statut: { [Op.notIn]: ['termine', 'livre', 'annule'] } }
+              ]
+            };
+            Object.assign(whereClause, dateCondition);
+            break;
+          case 'last90days':
+            const ninetyDaysAgo = new Date(now.getTime() - (90 * 24 * 60 * 60 * 1000));
+            dateCondition = {
+              [Op.or]: [
+                // Orders created in last 90 days
+                { createdAt: { [Op.gte]: ninetyDaysAgo } },
+                // Or active orders regardless of age
+                { statut: { [Op.notIn]: ['termine', 'livre', 'annule'] } }
+              ]
+            };
+            Object.assign(whereClause, dateCondition);
+            break;
+          case 'all':
+          default:
+            // No additional filtering
+            break;
+        }
+      }
 
       // Create a custom order that puts orders with delivery dates first (closest first),
       // then orders without delivery dates, sorted by creation date
@@ -52,6 +103,11 @@ class OrderController {
               as: 'orderProduct',
               attributes: ['quantity', 'unit_price']
             }
+          },
+          {
+            model: Client,
+            as: 'clientInfo',
+            attributes: ['id', 'nom', 'email', 'telephone', 'type_client']
           }
         ]
       });
@@ -87,6 +143,11 @@ class OrderController {
               as: 'orderProduct',
               attributes: ['quantity', 'unit_price']
             }
+          },
+          {
+            model: Client,
+            as: 'clientInfo',
+            attributes: ['id', 'nom', 'email', 'telephone', 'ville', 'type_client']
           }
         ]
       });
@@ -114,6 +175,7 @@ class OrderController {
         infographe_en_charge,
         numero_pms,
         client,
+        client_id, // Add client_id support
         products, // Array of {productId, quantity, unitPrice?}
         date_limite_livraison_estimee,
         date_limite_livraison_attendue,
@@ -121,11 +183,14 @@ class OrderController {
         option_finition,
         atelier_concerne,
         statut = 'en_attente',
-        commentaires
+        commentaires,
+        estimated_work_time_minutes,
+        bat, // New BAT field
+        express // New Express field
       } = req.body;
 
-      // Validate required fields
-      if (!commercial_en_charge || !numero_pms || !client || !products || !Array.isArray(products) || products.length === 0) {
+      // Validate required fields - now client_id is preferred over client
+      if (!commercial_en_charge || !numero_pms || (!client && !client_id) || !products || !Array.isArray(products) || products.length === 0) {
         await transaction.rollback();
         return res.status(400).json({ 
           message: 'Les champs commercial, numéro PMS, client et produits sont requis' 
@@ -139,6 +204,18 @@ class OrderController {
           return res.status(400).json({ 
             message: 'Chaque produit doit avoir un ID valide et une quantité supérieure à 0' 
           });
+        }
+
+        // Validate finitions if provided
+        if (product.finitions && Array.isArray(product.finitions)) {
+          for (const finition of product.finitions) {
+            if (!finition.finition_id || typeof finition.finition_id !== 'number') {
+              await transaction.rollback();
+              return res.status(400).json({ 
+                message: 'Chaque finition doit avoir un ID valide' 
+              });
+            }
+          }
         }
       }
 
@@ -161,14 +238,18 @@ class OrderController {
         commercial_en_charge,
         infographe_en_charge,
         numero_pms,
-        client,
+        client: client || null, // Keep for backward compatibility
+        client_id: client_id || null, // New client reference
         date_limite_livraison_estimee: date_limite_livraison_estimee ? new Date(date_limite_livraison_estimee) : null,
         date_limite_livraison_attendue: date_limite_livraison_attendue ? new Date(date_limite_livraison_attendue) : null,
         etape,
         option_finition,
         atelier_concerne,
         statut,
-        commentaires
+        commentaires,
+        estimated_work_time_minutes,
+        bat, // New BAT field
+        express // New Express field
       }, { transaction });
 
       // Create order-product relationships
@@ -176,7 +257,8 @@ class OrderController {
         order_id: order.id,
         product_id: product.productId,
         quantity: product.quantity,
-        unit_price: product.unitPrice || null
+        unit_price: product.unitPrice || null,
+        finitions: product.finitions || null
       }));
 
       await OrderProduct.bulkCreate(orderProducts, { transaction });
@@ -193,6 +275,11 @@ class OrderController {
               as: 'orderProduct',
               attributes: ['quantity', 'unit_price']
             }
+          },
+          {
+            model: Client,
+            as: 'clientInfo',
+            attributes: ['id', 'nom', 'email', 'telephone', 'type_client']
           }
         ]
       });
@@ -222,6 +309,7 @@ class OrderController {
         infographe_en_charge,
         numero_pms,
         client,
+        client_id, // Add client_id support
         products, // Array of {productId, quantity, unitPrice?} - optional for updates
         date_limite_livraison_estimee,
         date_limite_livraison_attendue,
@@ -229,7 +317,10 @@ class OrderController {
         option_finition,
         atelier_concerne,
         statut,
-        commentaires
+        commentaires,
+        estimated_work_time_minutes,
+        bat, // New BAT field
+        express // New Express field
       } = req.body;
 
       const order = await Order.findByPk(id, { transaction });
@@ -248,6 +339,18 @@ class OrderController {
             return res.status(400).json({ 
               message: 'Chaque produit doit avoir un ID valide et une quantité supérieure à 0' 
             });
+          }
+
+          // Validate finitions if provided
+          if (product.finitions && Array.isArray(product.finitions)) {
+            for (const finition of product.finitions) {
+              if (!finition.finition_id || typeof finition.finition_id !== 'number') {
+                await transaction.rollback();
+                return res.status(400).json({ 
+                  message: 'Chaque finition doit avoir un ID valide' 
+                });
+              }
+            }
           }
         }
 
@@ -276,7 +379,8 @@ class OrderController {
           order_id: id,
           product_id: product.productId,
           quantity: product.quantity,
-          unit_price: product.unitPrice || null
+          unit_price: product.unitPrice || null,
+          finitions: product.finitions || null
         }));
 
         await OrderProduct.bulkCreate(orderProducts, { transaction });
@@ -287,14 +391,18 @@ class OrderController {
         commercial_en_charge: commercial_en_charge || order.commercial_en_charge,
         infographe_en_charge: infographe_en_charge !== undefined ? infographe_en_charge : order.infographe_en_charge,
         numero_pms: numero_pms || order.numero_pms,
-        client: client || order.client,
+        client: client !== undefined ? client : order.client,
+        client_id: client_id !== undefined ? client_id : order.client_id,
         date_limite_livraison_estimee: date_limite_livraison_estimee ? new Date(date_limite_livraison_estimee) : order.date_limite_livraison_estimee,
         date_limite_livraison_attendue: date_limite_livraison_attendue ? new Date(date_limite_livraison_attendue) : order.date_limite_livraison_attendue,
         etape: etape !== undefined ? etape : order.etape,
         option_finition: option_finition !== undefined ? option_finition : order.option_finition,
         atelier_concerne: atelier_concerne !== undefined ? atelier_concerne : order.atelier_concerne,
         statut: statut || order.statut,
-        commentaires: commentaires !== undefined ? commentaires : order.commentaires
+        commentaires: commentaires !== undefined ? commentaires : order.commentaires,
+        estimated_work_time_minutes: estimated_work_time_minutes !== undefined ? estimated_work_time_minutes : order.estimated_work_time_minutes,
+        bat: bat !== undefined ? bat : order.bat, // New BAT field
+        express: express !== undefined ? express : order.express // New Express field
       }, { transaction });
 
       await transaction.commit();
@@ -309,6 +417,11 @@ class OrderController {
               as: 'orderProduct',
               attributes: ['quantity', 'unit_price']
             }
+          },
+          {
+            model: Client,
+            as: 'clientInfo',
+            attributes: ['id', 'nom', 'email', 'telephone', 'type_client']
           }
         ]
       });
@@ -352,11 +465,15 @@ class OrderController {
   // Get order statistics
   static async getOrderStats(req, res) {
     try {
+      // Only count orders that are shown in the dashboard (exclude cancelled and delivered)
       const stats = await Order.findAll({
         attributes: [
           'statut',
           [Order.sequelize.fn('COUNT', Order.sequelize.col('id')), 'count']
         ],
+        where: {
+          statut: { [Op.notIn]: ['annule', 'livre'] }
+        },
         group: ['statut']
       });
 
@@ -364,8 +481,8 @@ class OrderController {
         en_attente: 0,
         en_cours: 0,
         termine: 0,
-        livre: 0,
-        annule: 0
+        livre: 0, // Will always be 0 since we exclude it
+        annule: 0 // Will always be 0 since we exclude it
       };
 
       stats.forEach(stat => {

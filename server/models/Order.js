@@ -25,8 +25,19 @@ module.exports = (sequelize) => {
     },
     client: {
       type: DataTypes.STRING,
-      allowNull: false,
-      comment: 'Nom du client'
+      allowNull: true, // Made nullable since we'll use client_id reference
+      comment: 'Nom du client (legacy field, use client_id instead)'
+    },
+    client_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'clients',
+        key: 'id'
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'SET NULL',
+      comment: 'ID du client référencé'
     },
     date_limite_livraison_estimee: {
       type: DataTypes.DATE,
@@ -68,6 +79,21 @@ module.exports = (sequelize) => {
       type: DataTypes.FLOAT,
       allowNull: true,
       comment: 'Temps estimé total en heures pour cette commande'
+    },
+    estimated_work_time_minutes: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'Temps de travail estimé en minutes (défini par le chef d\'atelier)'
+    },
+    bat: {
+      type: DataTypes.ENUM('avec', 'sans'),
+      allowNull: true,
+      comment: 'BAT (Bon À Tirer) - avec ou sans'
+    },
+    express: {
+      type: DataTypes.ENUM('oui', 'non'),
+      allowNull: true,
+      comment: 'Commande express - oui ou non'
     }
   }, {
     tableName: 'orders',
@@ -78,6 +104,12 @@ module.exports = (sequelize) => {
 
   // Define associations
   Order.associate = function(models) {
+    // Order belongs to a client
+    Order.belongsTo(models.Client, {
+      foreignKey: 'client_id',
+      as: 'clientInfo'
+    });
+    
     // Order has many products through order_products
     Order.belongsToMany(models.Product, {
       through: models.OrderProduct,

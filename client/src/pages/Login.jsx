@@ -15,7 +15,6 @@ function LoginPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
     // Simple validation
     if (!email || !password) {
       setError('Veuillez saisir votre email et votre mot de passe')
@@ -76,20 +75,17 @@ function LoginPage() {
               disabled={isLoading}
             />
             
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Connexion...' : 'Se connecter'}
-            </Button>
+            <div className="flex justify-center">
+              <Button type="submit" disabled={isLoading}>
+                {isLoading ? 'Connexion...' : 'Se connecter'}
+              </Button>
+            </div>
             
             <p className='text-xs text-gray-500 mt-2 px-4'>
               Si vous avez oublié votre mot de passe, contactez votre responsable pour le réinitialiser
             </p>
             
-            <p className='text-sm text-center mt-4'>
-              Pas de compte ?{' '}
-              <Link to="/register" className="text-[#00AABB] hover:underline">
-                S'inscrire
-              </Link>
-            </p>
+          
           </form>
         </div>
       </div>

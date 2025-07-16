@@ -1,12 +1,52 @@
-const { Product } = require('../models');
+const { Product, Finition, ProductFinition } = require('../models');
 
 // Get all products
 const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.findAll({
-      order: [['name', 'ASC']]
+    const { page = 1, limit = 10, sortBy = 'name', sortOrder = 'ASC', search = '' } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build where clause for search
+    const whereClause = {};
+    if (search) {
+      whereClause.name = {
+        [require('sequelize').Op.iLike]: `%${search}%`
+      };
+    }
+
+    const { count, rows } = await Product.findAndCountAll({
+      where: whereClause,
+      order: [[sortBy, sortOrder.toUpperCase()]],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      include: [
+        {
+          model: Finition,
+          as: 'finitions',
+          through: {
+            as: 'productFinition',
+            attributes: ['is_default', 'additional_cost', 'additional_time']
+          },
+          where: { active: true },
+          required: false
+        }
+      ]
     });
-    res.json(products);
+
+    const totalPages = Math.ceil(count / parseInt(limit));
+    const hasNextPage = parseInt(page) < totalPages;
+    const hasPrevPage = parseInt(page) > 1;
+
+    res.json({
+      products: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalProducts: count,
+        hasNextPage,
+        hasPrevPage
+      }
+    });
   } catch (error) {
     console.error('Error fetching products:', error);
     res.status(500).json({ error: 'Failed to fetch products' });
@@ -17,7 +57,20 @@ const getAllProducts = async (req, res) => {
 const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await Product.findByPk(id);
+    const product = await Product.findByPk(id, {
+      include: [
+        {
+          model: Finition,
+          as: 'finitions',
+          through: {
+            as: 'productFinition',
+            attributes: ['is_default', 'additional_cost', 'additional_time']
+          },
+          where: { active: true },
+          required: false
+        }
+      ]
+    });
     
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
