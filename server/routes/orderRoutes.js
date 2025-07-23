@@ -13,6 +13,7 @@ router.get('/stats', OrderController.getOrderStats);
 router.get('/:id', OrderController.getOrderById);
 router.post('/', OrderController.createOrder);
 router.put('/:id', OrderController.updateOrder);
+router.put('/:orderId/products/:productId', OrderController.updateOrderProduct);
 router.delete('/:id', OrderController.deleteOrder);
 
 module.exports = router;

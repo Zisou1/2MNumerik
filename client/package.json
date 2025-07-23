@@ -24,6 +24,7 @@
     "react-router-dom": "^7.6.0",
     "recharts": "^3.1.0",
     "rollup": "^4.41.0",
+    "socket.io-client": "^4.8.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

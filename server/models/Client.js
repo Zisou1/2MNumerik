@@ -18,11 +18,6 @@ module.exports = (sequelize) => {
       unique: true,
       comment: 'Code client unique pour identification'
     },
-    numero_affaire: {
-      type: DataTypes.STRING(100),
-      allowNull: true,
-      comment: 'Numéro d\'affaire associé au client'
-    },
     email: {
       type: DataTypes.STRING,
       allowNull: true,

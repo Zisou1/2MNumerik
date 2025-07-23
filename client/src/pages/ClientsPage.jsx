@@ -19,7 +19,6 @@ const ClientsPage = () => {
   const [filters, setFilters] = useState({
     nom: '',
     email: '',
-    ville: '',
     type_client: '',
     actif: '',
     code_client: '',
@@ -180,14 +179,6 @@ const ClientsPage = () => {
                 onChange={(e) => setFilters({...filters, email: e.target.value})}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm"
               />
-              
-              <input
-                type="text"
-                placeholder="Ville"
-                value={filters.ville}
-                onChange={(e) => setFilters({...filters, ville: e.target.value})}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm"
-              />
 
               <input
                 type="text"
@@ -229,12 +220,11 @@ const ClientsPage = () => {
               </select>
 
               {/* Clear Filters Button */}
-              {(filters.nom || filters.email || filters.ville || filters.type_client || filters.actif || filters.code_client || filters.numero_affaire) && (
+              {(filters.nom || filters.email || filters.type_client || filters.actif || filters.code_client || filters.numero_affaire) && (
                 <button
                   onClick={() => setFilters({
                     nom: '',
                     email: '',
-                    ville: '',
                     type_client: '',
                     actif: '',
                     code_client: '',
@@ -295,7 +285,6 @@ const ClientsPage = () => {
                   <div className="space-y-1 text-sm text-gray-600 mb-3">
                     {client.email && <p><span className="font-medium">Email:</span> {client.email}</p>}
                     {client.telephone && <p><span className="font-medium">Téléphone:</span> {client.telephone}</p>}
-                    {client.ville && <p><span className="font-medium">Ville:</span> {client.ville}</p>}
                     {client.code_client && <p><span className="font-medium">Code client:</span> {client.code_client}</p>}
                     {client.numero_affaire && <p><span className="font-medium">Numéro d'affaire:</span> {client.numero_affaire}</p>}
                     {client.orders && client.orders.length > 0 && (
@@ -348,9 +337,6 @@ const ClientsPage = () => {
                     Code client
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Numéro d'affaire
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Contact
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -388,9 +374,6 @@ const ClientsPage = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {client.code_client || '-'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {client.numero_affaire || '-'}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
                         {client.email && (
@@ -409,8 +392,11 @@ const ClientsPage = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       <div>
-                        {client.ville && <div>{client.ville}</div>}
-                        {client.code_postal && <div className="text-gray-600">{client.code_postal}</div>}
+                        {client.adresse ? (
+                          <div className="max-w-xs truncate">{client.adresse}</div>
+                        ) : (
+                          <span className="text-gray-500">-</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -566,17 +552,13 @@ const ClientsPage = () => {
 const ClientModal = ({ client, onClose, onSave, typeClientOptions }) => {
   const [formData, setFormData] = useState({
     nom: '',
+    code_client: '',
     email: '',
     telephone: '',
     adresse: '',
-    ville: '',
-    code_postal: '',
-    pays: 'France',
-    siret: '',
     type_client: 'particulier',
     actif: true,
     notes: '',
-    code_client: '',
     numero_affaire: ''
   });
   const [loading, setLoading] = useState(false);
@@ -586,17 +568,13 @@ const ClientModal = ({ client, onClose, onSave, typeClientOptions }) => {
     if (client) {
       setFormData({
         nom: client.nom || '',
+        code_client: client.code_client || '',
         email: client.email || '',
         telephone: client.telephone || '',
         adresse: client.adresse || '',
-        ville: client.ville || '',
-        code_postal: client.code_postal || '',
-        pays: client.pays || 'France',
-        siret: client.siret || '',
         type_client: client.type_client || 'particulier',
         actif: client.actif !== undefined ? client.actif : true,
         notes: client.notes || '',
-        code_client: client.code_client || '',
         numero_affaire: client.numero_affaire || ''
       });
     }
@@ -684,12 +662,13 @@ const ClientModal = ({ client, onClose, onSave, typeClientOptions }) => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Code client
+                  Code client *
                 </label>
                 <input
                   type="text"
                   value={formData.code_client}
                   onChange={(e) => handleChange('code_client', e.target.value)}
+                  required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -738,54 +717,6 @@ const ClientModal = ({ client, onClose, onSave, typeClientOptions }) => {
                   value={formData.adresse}
                   onChange={(e) => handleChange('adresse', e.target.value)}
                   rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Ville
-                </label>
-                <input
-                  type="text"
-                  value={formData.ville}
-                  onChange={(e) => handleChange('ville', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Code postal
-                </label>
-                <input
-                  type="text"
-                  value={formData.code_postal}
-                  onChange={(e) => handleChange('code_postal', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Pays
-                </label>
-                <input
-                  type="text"
-                  value={formData.pays}
-                  onChange={(e) => handleChange('pays', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  SIRET
-                </label>
-                <input
-                  type="text"
-                  value={formData.siret}
-                  onChange={(e) => handleChange('siret', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -899,17 +830,13 @@ const ImportExcelModal = ({ onClose, onImportSuccess }) => {
     const template = [
       {
         nom: 'Exemple Client',
+        code_client: 'CLI001',
         email: 'client@example.com',
         telephone: '0123456789',
-        adresse: '123 Rue Example',
-        ville: 'Paris',
-        code_postal: '75001',
-        pays: 'France',
-        siret: '12345678901234',
+        adresse: '123 Rue Example, Paris 75001',
         type_client: 'entreprise',
         actif: true,
         notes: 'Notes exemple',
-        code_client: 'CLI001',
         numero_affaire: 'AFF-2024-001'
       }
     ];
@@ -921,17 +848,13 @@ const ImportExcelModal = ({ onClose, onImportSuccess }) => {
     // Set column widths
     const colWidths = [
       { wch: 20 }, // nom
+      { wch: 15 }, // code_client
       { wch: 25 }, // email
       { wch: 15 }, // telephone
-      { wch: 30 }, // adresse
-      { wch: 15 }, // ville
-      { wch: 12 }, // code_postal
-      { wch: 10 }, // pays
-      { wch: 18 }, // siret
+      { wch: 40 }, // adresse
       { wch: 15 }, // type_client
       { wch: 8 },  // actif
       { wch: 30 }, // notes
-      { wch: 15 }, // code_client
       { wch: 18 }  // numero_affaire
     ];
     worksheet['!cols'] = colWidths;
@@ -965,10 +888,11 @@ const ImportExcelModal = ({ onClose, onImportSuccess }) => {
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>• Le fichier doit être au format Excel (.xlsx ou .xls)</li>
                   <li>• La première ligne doit contenir les en-têtes de colonnes</li>
-                  <li>• Les colonnes acceptées: nom, email, telephone, adresse, ville, code_postal, pays, siret, type_client, actif, notes, code_client, numero_affaire</li>
-                  <li>• Le champ "nom" est obligatoire</li>
+                  <li>• Les colonnes acceptées: nom, code_client, email, telephone, adresse, type_client, actif, notes, numero_affaire</li>
+                  <li>• Les champs "nom" et "code_client" sont obligatoires</li>
                   <li>• type_client doit être: particulier, entreprise, ou association</li>
-                  <li>• Les champs code_client et numero_affaire sont optionnels</li>
+                  <li>• <strong>Gestion des doublons:</strong> Si un code_client existe déjà et que le nom est différent, le client sera mis à jour avec les nouvelles données</li>
+                  <li>• Le code_client doit être unique pour chaque client</li>
                 </ul>
               </div>
 
@@ -1054,7 +978,27 @@ const ImportExcelModal = ({ onClose, onImportSuccess }) => {
                 <div className="text-2xl font-bold text-green-600 mb-2">
                   {importResults.success} clients importés avec succès
                 </div>
+                {importResults.updated > 0 && (
+                  <div className="text-lg font-medium text-blue-600 mb-2">
+                    {importResults.updated} clients mis à jour
+                  </div>
+                )}
               </div>
+
+              {importResults.updates && importResults.updates.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="font-medium text-blue-800 mb-2">
+                    Clients mis à jour ({importResults.updates.length}):
+                  </h4>
+                  <div className="max-h-32 overflow-y-auto">
+                    {importResults.updates.map((update, index) => (
+                      <div key={index} className="text-sm text-blue-700">
+                        Ligne {update.row}: {update.message}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {importResults.duplicates.length > 0 && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">

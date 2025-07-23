@@ -166,7 +166,7 @@ class StatisticsController {
           include: [{
             model: Client,
             as: 'clientInfo',
-            attributes: ['id', 'nom']
+            attributes: ['id', 'nom', 'code_client', 'email', 'telephone', 'adresse', 'type_client']
           }],
           attributes: ['client_id']
         });

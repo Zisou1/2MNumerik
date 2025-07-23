@@ -10,11 +10,9 @@ class ClientController {
       const { 
         nom, 
         email,
-        ville,
         type_client,
         actif,
         code_client,
-        numero_affaire,
         page = 1, 
         limit = 10,
         sortBy = 'nom',
@@ -27,11 +25,9 @@ class ClientController {
       const whereClause = {};
       if (nom) whereClause.nom = { [Op.like]: `%${nom}%` };
       if (email) whereClause.email = { [Op.like]: `%${email}%` };
-      if (ville) whereClause.ville = { [Op.like]: `%${ville}%` };
       if (type_client) whereClause.type_client = type_client;
       if (actif !== undefined) whereClause.actif = actif === 'true';
       if (code_client) whereClause.code_client = { [Op.like]: `%${code_client}%` };
-      if (numero_affaire) whereClause.numero_affaire = { [Op.like]: `%${numero_affaire}%` };
 
       const result = await Client.findAndCountAll({
         where: whereClause,
@@ -286,11 +282,10 @@ class ClientController {
           [Op.or]: [
             { nom: { [Op.like]: `%${q}%` } },
             { email: { [Op.like]: `%${q}%` } },
-            { code_client: { [Op.like]: `%${q}%` } },
-            { numero_affaire: { [Op.like]: `%${q}%` } }
+            { code_client: { [Op.like]: `%${q}%` } }
           ]
         },
-        attributes: ['id', 'nom', 'email', 'adresse', 'type_client', 'telephone', 'code_client', 'numero_affaire'],
+        attributes: ['id', 'nom', 'email', 'adresse', 'type_client', 'telephone', 'code_client'],
         limit: 20,
         order: [['nom', 'ASC']]
       });
@@ -335,8 +330,10 @@ class ClientController {
 
       const results = {
         success: 0,
+        updated: 0,
         errors: [],
-        duplicates: []
+        duplicates: [],
+        updates: []
       };
 
       // Process each row
@@ -344,21 +341,16 @@ class ClientController {
         try {
           const row = data[i];
           
-          // Map Excel columns to database fields
+          // Map Excel columns to database fields (only use actual database fields)
           const clientData = {
             nom: row['nom'] || row['Nom'] || row['name'] || row['Name'],
+            code_client: row['code_client'] || row['Code client'] || row['code'] || '',
             email: row['email'] || row['Email'] || row['E-mail'],
             telephone: row['telephone'] || row['Téléphone'] || row['tel'] || row['phone'],
             adresse: row['adresse'] || row['Adresse'] || row['address'],
-            ville: row['ville'] || row['Ville'] || row['city'],
-            code_postal: row['code_postal'] || row['Code postal'] || row['postal_code'] || row['zip'],
-            pays: row['pays'] || row['Pays'] || row['country'] || 'France',
-            siret: row['siret'] || row['SIRET'] || row['Siret'],
             type_client: row['type_client'] || row['Type client'] || row['type'] || 'particulier',
             actif: row['actif'] !== undefined ? Boolean(row['actif']) : true,
-            notes: row['notes'] || row['Notes'] || row['commentaires'] || '',
-            code_client: row['code_client'] || row['Code client'] || row['code'] || '',
-            numero_affaire: row['numero_affaire'] || row['Numero d\'affaire'] || row['Numéro d\'affaire'] || row['numero_affaire'] || row['affaire'] || ''
+            notes: row['notes'] || row['Notes'] || row['commentaires'] || ''
           };
 
           // Validate required fields
@@ -370,26 +362,66 @@ class ClientController {
             continue;
           }
 
+          // Validate code_client is required
+          if (!clientData.code_client) {
+            results.errors.push({
+              row: i + 2,
+              error: 'Code client manquant (requis)'
+            });
+            continue;
+          }
+
           // Validate type_client
           if (!['particulier', 'entreprise', 'association'].includes(clientData.type_client)) {
             clientData.type_client = 'particulier';
           }
 
-          // Check for duplicates
-          const existingClient = await Client.findOne({
-            where: { nom: clientData.nom }
+          // Check for existing client by code_client (now required)
+          let existingClient = await Client.findOne({
+            where: { code_client: clientData.code_client }
           });
 
           if (existingClient) {
-            results.duplicates.push({
-              row: i + 2,
-              nom: clientData.nom,
-              message: 'Client avec ce nom existe déjà'
+            // Client exists with same code_client
+            if (existingClient.nom === clientData.nom) {
+              // Same name, consider as duplicate
+              results.duplicates.push({
+                row: i + 2,
+                nom: clientData.nom,
+                code_client: clientData.code_client,
+                message: 'Client avec ce code client et nom existe déjà'
+              });
+              continue;
+            } else {
+              // Different name, update the existing client
+              await existingClient.update(clientData);
+              results.updated++;
+              results.updates.push({
+                row: i + 2,
+                nom: clientData.nom,
+                code_client: clientData.code_client,
+                oldName: existingClient.nom,
+                message: `Nom mis à jour de "${existingClient.nom}" vers "${clientData.nom}"`
+              });
+              continue;
+            }
+          } else {
+            // No existing client with this code_client, check by name for potential duplicates
+            const clientByName = await Client.findOne({
+              where: { nom: clientData.nom }
             });
-            continue;
+            
+            if (clientByName) {
+              results.duplicates.push({
+                row: i + 2,
+                nom: clientData.nom,
+                message: 'Client avec ce nom existe déjà (code client différent)'
+              });
+              continue;
+            }
           }
 
-          // Create client
+          // Create new client
           await Client.create(clientData);
           results.success++;
 
@@ -403,7 +435,7 @@ class ClientController {
 
       res.json({
         success: true,
-        message: `Import terminé: ${results.success} clients créés`,
+        message: `Import terminé: ${results.success} clients créés, ${results.updated} clients mis à jour`,
         results
       });
 

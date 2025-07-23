@@ -110,6 +110,11 @@ export const orderAPI = {
     body: JSON.stringify(orderData),
   }),
   
+  updateOrderProduct: (orderId, productId, productData) => apiCall(`/orders/${orderId}/products/${productId}`, {
+    method: 'PUT',
+    body: JSON.stringify(productData),
+  }),
+  
   deleteOrder: (id) => apiCall(`/orders/${id}`, {
     method: 'DELETE',
   }),
@@ -264,4 +269,55 @@ export const exportAPI = {
   },
 }
 
-export default { apiCall, authAPI, userAPI, orderAPI, productAPI, clientAPI, finitionAPI, statisticsAPI, exportAPI }
+// Atelier Tasks API calls
+export const atelierTaskAPI = {
+  getTasks: (params = {}) => {
+    const queryString = Object.keys(params)
+      .filter(key => params[key] !== '' && params[key] !== null && params[key] !== undefined)
+      .map(key => `${key}=${encodeURIComponent(params[key])}`)
+      .join('&');
+    
+    return apiCall(`/atelier-tasks${queryString ? '?' + queryString : ''}`);
+  },
+  
+  getTask: (id) => apiCall(`/atelier-tasks/${id}`),
+  
+  createTask: (taskData) => apiCall('/atelier-tasks', {
+    method: 'POST',
+    body: JSON.stringify(taskData),
+  }),
+  
+  updateTask: (id, taskData) => apiCall(`/atelier-tasks/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(taskData),
+  }),
+  
+  deleteTask: (id) => apiCall(`/atelier-tasks/${id}`, {
+    method: 'DELETE',
+  }),
+  
+  getTaskStats: (params = {}) => {
+    const queryString = Object.keys(params)
+      .filter(key => params[key] !== '' && params[key] !== null && params[key] !== undefined)
+      .map(key => `${key}=${encodeURIComponent(params[key])}`)
+      .join('&');
+    
+    return apiCall(`/atelier-tasks/stats${queryString ? '?' + queryString : ''}`);
+  },
+  
+  getTasksByAssignee: (assignedTo, params = {}) => {
+    const queryString = Object.keys(params)
+      .filter(key => params[key] !== '' && params[key] !== null && params[key] !== undefined)
+      .map(key => `${key}=${encodeURIComponent(params[key])}`)
+      .join('&');
+    
+    return apiCall(`/atelier-tasks/assignee/${encodeURIComponent(assignedTo)}${queryString ? '?' + queryString : ''}`);
+  },
+  
+  updateTaskStatus: (id, statusData) => apiCall(`/atelier-tasks/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(statusData),
+  }),
+}
+
+export default { apiCall, authAPI, userAPI, orderAPI, productAPI, clientAPI, finitionAPI, statisticsAPI, exportAPI, atelierTaskAPI }

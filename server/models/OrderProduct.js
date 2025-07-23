@@ -43,6 +43,59 @@ module.exports = (sequelize) => {
       type: DataTypes.JSON,
       allowNull: true,
       comment: 'JSON array of selected finitions for this product in this order. Each finition object contains: {finition_id, additional_cost, additional_time}'
+    },
+    numero_pms: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+      comment: 'Numéro PMS spécifique à ce produit'
+    },
+    infograph_en_charge: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Infographe assigné à ce produit spécifique'
+    },
+    etape: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Étape actuelle pour ce produit (conception, pré-presse, impression, finition, découpe)'
+    },
+    statut: {
+      type: DataTypes.ENUM('en_attente', 'en_cours', 'termine', 'livre', 'annule'),
+      allowNull: false,
+      defaultValue: 'en_attente',
+      comment: 'Statut spécifique à ce produit'
+    },
+    estimated_work_time_minutes: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'Temps de travail estimé en minutes pour ce produit'
+    },
+    date_limite_livraison_estimee: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Date limite de livraison estimée pour ce produit'
+    },
+    atelier_concerne: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Atelier qui traite ce produit spécifique'
+    },
+    commentaires: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Commentaires spécifiques à ce produit'
+    },
+    bat: {
+      type: DataTypes.ENUM('avec', 'sans'),
+      allowNull: true,
+      comment: 'BAT (Bon à tirer) pour ce produit spécifique'
+    },
+    express: {
+      type: DataTypes.ENUM('oui', 'non'),
+      allowNull: false,
+      defaultValue: 'non',
+      comment: 'Express flag pour ce produit spécifique'
     }
   }, {
     tableName: 'order_products',

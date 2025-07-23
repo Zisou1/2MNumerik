@@ -3,9 +3,12 @@ import { orderAPI } from '../utils/api'
 import Button from '../components/ButtonComponent'
 import AlertDialog from '../components/AlertDialog'
 import { useAuth } from '../contexts/AuthContext'
+import { useWebSocket } from '../contexts/WebSocketContext'
+import WebSocketStatus from '../components/WebSocketStatus'
 
 const HistoryOrdersPage = () => {
   const { user } = useAuth()
+  const { subscribe, connected } = useWebSocket()
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -123,6 +126,52 @@ const HistoryOrdersPage = () => {
     fetchHistoryOrders()
     fetchHistoryStats()
   }, [filters])
+
+  // WebSocket event listeners for real-time updates
+  useEffect(() => {
+    if (!connected) return
+
+    const unsubscribeOrderUpdated = subscribe('orderUpdated', (updatedOrder) => {
+      console.log('Real-time: Order updated in history', updatedOrder)
+      
+      // Only add to history if order is now cancelled or delivered
+      if (updatedOrder.statut === 'annule' || updatedOrder.statut === 'livre') {
+        setOrders(prevOrders => {
+          const orderIndex = prevOrders.findIndex(order => order.id === updatedOrder.id)
+          if (orderIndex >= 0) {
+            const newOrders = [...prevOrders]
+            newOrders[orderIndex] = updatedOrder
+            return newOrders
+          } else {
+            // Order wasn't in history before but now should be
+            return [updatedOrder, ...prevOrders]
+          }
+        })
+        
+        // Update stats
+        fetchHistoryStats()
+      } else {
+        // Order is no longer in history state, remove it
+        setOrders(prevOrders => prevOrders.filter(order => order.id !== updatedOrder.id))
+        fetchHistoryStats()
+      }
+    })
+
+    const unsubscribeOrderDeleted = subscribe('orderDeleted', (deletedOrderData) => {
+      console.log('Real-time: Order deleted from history', deletedOrderData)
+      
+      setOrders(prevOrders => prevOrders.filter(order => order.id !== deletedOrderData.id))
+      
+      // Update stats
+      fetchHistoryStats()
+    })
+
+    // Cleanup function
+    return () => {
+      unsubscribeOrderUpdated()
+      unsubscribeOrderDeleted()
+    }
+  }, [connected, subscribe])
 
   const handleDeleteOrder = async (orderId) => {
     setOrderToDelete(orderId)

@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { NotificationProvider } from './contexts/NotificationContext'
+import { WebSocketProvider } from './contexts/WebSocketContext'
 import LoginPage from './pages/Login'
 import HomePage from './pages/HomePage'
 import ManagementPage from './pages/ManagementPage' 
@@ -8,10 +9,12 @@ import ProductsPage from './pages/ProductsPage'
 import ClientsPage from './pages/ClientsPage'
 import HistoryOrdersPage from './pages/HistoryOrdersPage'
 import StatisticsPage from './pages/StatisticsPage'
+import AtelierTasksPage from './pages/AtelierTasksPage'
 import Layout from './layout/Layout'
 import RegisterPage from './pages/RegisterPage'
 import ProtectedRoute from './components/ProtectedRoute'
 import DashboardPage from './pages/DashboardPage'
+import DashboardPageClean from './pages/DashboardPageClean'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import DashboardPageImproved from './pages/DashboardPageImproved'
 import SettingsPage from './pages/SettingsPage'
@@ -76,10 +79,11 @@ function AppRoutes() {
           } 
         />
         
-        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="dashboard" element={<DashboardPageClean />} />
         <Route path="history" element={<HistoryOrdersPage />} />
         <Route path="products" element={<ProductsPage />} />
         <Route path="clients" element={<ClientsPage />} />
+        <Route path="atelier-tasks" element={<AtelierTasksPage />} />
         {/* Admin-only settings route */}
         <Route 
           path="settings" 
@@ -101,9 +105,11 @@ function App() {
   return (
     <AuthProvider>
       <NotificationProvider>
-        <Router>
-          <AppRoutes />
-        </Router>
+        <WebSocketProvider>
+          <Router>
+            <AppRoutes />
+          </Router>
+        </WebSocketProvider>
       </NotificationProvider>
     </AuthProvider>
   )

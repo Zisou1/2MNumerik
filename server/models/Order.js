@@ -12,16 +12,15 @@ module.exports = (sequelize) => {
       allowNull: false,
       comment: 'Nom du commercial responsable du projet'
     },
-    infographe_en_charge: {
-      type: DataTypes.STRING,
+    numero_affaire: {
+      type: DataTypes.STRING(100),
       allowNull: true,
-      comment: 'Nom du designer ou infographe responsable'
+      comment: 'Numéro d\'affaire associé à la commande'
     },
-    numero_pms: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      unique: true,
-      comment: 'Code de référence interne'
+    numero_dm: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      comment: 'Numéro DM associé à la commande'
     },
     client: {
       type: DataTypes.STRING,
@@ -39,61 +38,21 @@ module.exports = (sequelize) => {
       onDelete: 'SET NULL',
       comment: 'ID du client référencé'
     },
-    date_limite_livraison_estimee: {
-      type: DataTypes.DATE,
-      allowNull: true,
-      comment: 'Date et heure de livraison prévue (planning)'
-    },
     date_limite_livraison_attendue: {
       type: DataTypes.DATE,
       allowNull: true,
-      comment: 'Date et heure de livraison attendue (client)'
-    },
-    etape: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      comment: 'Stade du projet (pré-presse, impression, etc.)'
-    },
-    option_finition: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-      comment: 'Finitions spécifiques (coins arrondis, pelliculage, etc.)'
-    },
-    atelier_concerne: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      comment: 'Atelier qui traite la commande (petit format, grand format, sous-traitance)'
+      comment: 'Date et heure de livraison attendue par le client pour toute la commande'
     },
     statut: {
       type: DataTypes.ENUM('en_attente', 'en_cours', 'termine', 'livre', 'annule'),
       allowNull: false,
       defaultValue: 'en_attente',
-      comment: 'État actuel'
+      comment: 'État actuel de la commande (calculé automatiquement à partir des produits)'
     },
     commentaires: {
       type: DataTypes.TEXT,
       allowNull: true,
-      comment: 'Informations supplémentaires pertinentes'
-    },
-    estimated_time: {
-      type: DataTypes.FLOAT,
-      allowNull: true,
-      comment: 'Temps estimé total en heures pour cette commande'
-    },
-    estimated_work_time_minutes: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      comment: 'Temps de travail estimé en minutes (défini par le chef d\'atelier)'
-    },
-    bat: {
-      type: DataTypes.ENUM('avec', 'sans'),
-      allowNull: true,
-      comment: 'BAT (Bon À Tirer) - avec ou sans'
-    },
-    express: {
-      type: DataTypes.ENUM('oui', 'non'),
-      allowNull: true,
-      comment: 'Commande express - oui ou non'
+      comment: 'Commentaires généraux pour toute la commande'
     }
   }, {
     tableName: 'orders',
@@ -101,6 +60,67 @@ module.exports = (sequelize) => {
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
   });
+
+  // Static method to calculate order status from product statuses
+  Order.calculateOverallStatus = function(productStatuses) {
+    if (!productStatuses || productStatuses.length === 0) {
+      return 'en_attente';
+    }
+
+    const statusCounts = {
+      'en_attente': 0,
+      'en_cours': 0,
+      'termine': 0,
+      'livre': 0,
+      'annule': 0
+    };
+
+    // Count each status
+    productStatuses.forEach(status => {
+      if (statusCounts.hasOwnProperty(status)) {
+        statusCounts[status]++;
+      }
+    });
+
+    const total = productStatuses.length;
+    
+    // If any product is cancelled, order is cancelled
+    if (statusCounts.annule > 0) {
+      return 'annule';
+    }
+    
+    // If all products are delivered, order is delivered
+    if (statusCounts.livre === total) {
+      return 'livre';
+    }
+    
+    // If all products are finished or delivered, order is finished
+    if (statusCounts.termine + statusCounts.livre === total) {
+      return 'termine';
+    }
+    
+    // If any product is in progress, order is in progress
+    if (statusCounts.en_cours > 0) {
+      return 'en_cours';
+    }
+    
+    // Otherwise, order is waiting
+    return 'en_attente';
+  };
+
+  // Instance method to update status based on products
+  Order.prototype.updateStatusFromProducts = async function() {
+    const orderProducts = await this.getOrderProducts();
+    const productStatuses = orderProducts.map(op => op.statut);
+    const newStatus = Order.calculateOverallStatus(productStatuses);
+    
+    if (this.statut !== newStatus) {
+      this.statut = newStatus;
+      await this.save();
+    }
+    
+    return newStatus;
+  };
 
   // Define associations
   Order.associate = function(models) {

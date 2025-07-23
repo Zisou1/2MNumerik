@@ -5,6 +5,20 @@ import ProgressStepper from './ProgressStepper'
 const OrderViewModal = ({ order, onClose, onEdit, formatDate, getStatusBadge, etapeOptions }) => {
   const { user } = useAuth()
   
+  // Debug: Log order data structure
+  console.log('OrderViewModal - Full order data:', JSON.stringify(order, null, 2))
+  
+  // Debug: Check if orderProducts exist and have finitions
+  if (order.orderProducts) {
+    console.log('OrderViewModal - Number of orderProducts:', order.orderProducts.length)
+    order.orderProducts.forEach((orderProduct, index) => {
+      console.log(`OrderViewModal - OrderProduct ${index}:`, JSON.stringify(orderProduct, null, 2))
+      console.log(`OrderViewModal - OrderProduct ${index} finitions:`, orderProduct.finitions)
+    })
+  } else {
+    console.log('OrderViewModal - No orderProducts found in order data')
+  }
+  
   // Helper function to check if user can edit orders
   const canEditOrders = () => {
     return user && (user.role === 'admin' || user.role === 'commercial')
@@ -17,6 +31,7 @@ const OrderViewModal = ({ order, onClose, onEdit, formatDate, getStatusBadge, et
         code_client: true,
         nom_client: true,
         numero_affaire: true,
+        numero_dm: true,
         commercial_en_charge: true,
         date_limite_livraison_attendue: true,
         produits: true,
@@ -46,6 +61,7 @@ const OrderViewModal = ({ order, onClose, onEdit, formatDate, getStatusBadge, et
         // Hide these fields for infograph
         code_client: false,
         numero_affaire: false,
+        numero_dm: false,
         commercial_en_charge: false,
         infograph_en_charge: false,
         date_limite_livraison_estimee: false,
@@ -61,6 +77,7 @@ const OrderViewModal = ({ order, onClose, onEdit, formatDate, getStatusBadge, et
       code_client: true,
       nom_client: true,
       numero_affaire: true,
+      numero_dm: true,
       commercial_en_charge: true,
       infograph_en_charge: true,
       date_limite_livraison_estimee: true,
@@ -141,263 +158,323 @@ const OrderViewModal = ({ order, onClose, onEdit, formatDate, getStatusBadge, et
           <ProgressStepper currentStep={order.etape} steps={steps} />
 
           {/* Content */}
-          <div className="p-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Left Column - Basic Information */}
-              <div className="space-y-6">
-                {/* Basic Info Section */}
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-blue-100 rounded-lg shadow-sm border border-blue-200">
-                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Informations générales</h4>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-blue-200/50">
-                      <span className="font-medium text-gray-700">Numéro PMS:</span>
-                      <span className="text-gray-900 font-semibold">{order.numero_pms}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-blue-200/50">
-                      <span className="font-medium text-gray-700">Client:</span>
-                      <span className="text-gray-900">
-                        {order.clientInfo ? order.clientInfo.nom : order.client}
-                        {!order.clientInfo && order.client && (
-                          <span className="ml-2 text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full border border-amber-200">
-                            Texte libre
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-blue-200/50">
-                      <span className="font-medium text-gray-700">Commercial:</span>
-                      <span className="text-gray-900">{order.commercial_en_charge}</span>
-                    </div>
-                    {visibleViewFields.infograph_en_charge && (
-                      <div className="flex justify-between items-center py-2 border-b border-blue-200/50">
-                        <span className="font-medium text-gray-700">Infographe:</span>
-                        <span className="text-gray-900">{order.infograph_en_charge || '-'}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center py-2">
-                      <span className="font-medium text-gray-700">Statut:</span>
-                      <div>{getStatusBadge(order.statut)}</div>
-                    </div>
-                  </div>
+          <div className="p-8 space-y-8">
+            {/* 1. Order General Information */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200 shadow-sm">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-blue-100 rounded-lg shadow-sm border border-blue-200">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
                 </div>
-
-                {/* Client Information Section */}
-                {order.clientInfo && (
-                  <div className="bg-gradient-to-br from-cyan-50 to-blue-50 rounded-xl p-6 border border-cyan-200 shadow-sm">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="p-2 bg-cyan-100 rounded-lg shadow-sm border border-cyan-200">
-                        <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                      </div>
-                      <h4 className="text-lg font-semibold text-gray-800">Informations client</h4>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center py-2 border-b border-cyan-200/50">
-                        <span className="font-medium text-gray-700">Nom:</span>
-                        <span className="text-gray-900 font-semibold">{order.clientInfo.nom}</span>
-                      </div>
-                      {order.clientInfo.code_client && (
-                        <div className="flex justify-between items-center py-2 border-b border-cyan-200/50">
-                          <span className="font-medium text-gray-700">Code client:</span>
-                          <span className="text-gray-900">{order.clientInfo.code_client}</span>
-                        </div>
-                      )}
-                      {order.clientInfo.numero_affaire && (
-                        <div className="flex justify-between items-center py-2 border-b border-cyan-200/50">
-                          <span className="font-medium text-gray-700">Numéro d'affaire:</span>
-                          <span className="text-gray-900">{order.clientInfo.numero_affaire}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center py-2 border-b border-cyan-200/50">
-                        <span className="font-medium text-gray-700">Email:</span>
-                        <span className="text-gray-900">{order.clientInfo.email}</span>
-                      </div>
-                      {order.clientInfo.telephone && (
-                        <div className="flex justify-between items-center py-2 border-b border-cyan-200/50">
-                          <span className="font-medium text-gray-700">Téléphone:</span>
-                          <span className="text-gray-900">{order.clientInfo.telephone}</span>
-                        </div>
-                      )}
-                      {order.clientInfo.adresse && (
-                        <div className="flex justify-between items-center py-2 border-b border-cyan-200/50">
-                          <span className="font-medium text-gray-700">Adresse:</span>
-                          <span className="text-gray-900">{order.clientInfo.adresse}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center py-2">
-                        <span className="font-medium text-gray-700">Type:</span>
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium capitalize ${
-                          order.clientInfo.type_client === 'entreprise' 
-                            ? 'bg-blue-100 text-blue-800 border border-blue-200' 
-                            : order.clientInfo.type_client === 'association'
-                            ? 'bg-green-100 text-green-800 border border-green-200'
-                            : 'bg-gray-100 text-gray-800 border border-gray-200'
-                        }`}>
-                          {order.clientInfo.type_client}
-                        </span>
-                      </div>
+                <h4 className="text-lg font-semibold text-gray-800">Informations générales de la commande</h4>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {order.numero_affaire && (
+                  <div className="space-y-1">
+                    <span className="text-sm font-medium text-gray-600">Numéro d'affaire</span>
+                    <div className="text-gray-900 font-semibold bg-white px-3 py-2 rounded-lg border border-blue-200/50">
+                      {order.numero_affaire}
                     </div>
                   </div>
                 )}
-
-                {/* Product Details Section */}
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-green-100 rounded-lg shadow-sm border border-green-200">
-                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                      </svg>
+                {order.numero_dm && (
+                  <div className="space-y-1">
+                    <span className="text-sm font-medium text-gray-600">Numéro DM</span>
+                    <div className="text-gray-900 font-semibold bg-white px-3 py-2 rounded-lg border border-blue-200/50">
+                      {order.numero_dm}
                     </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Produits commandés</h4>
                   </div>
-                  <div className="space-y-4">
-                    {order.products && order.products.length > 0 ? (
-                      order.products.map((product, index) => (
-                        <div key={index} className="bg-white p-4 rounded-lg border border-green-200/50 shadow-sm">
-                          <div className="flex justify-between items-start mb-2">
-                            <h5 className="font-medium text-gray-800">{product.name}</h5>
-                            <span className="text-sm text-gray-500">#{product.id}</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <span className="font-medium text-gray-600">Quantité:</span>
-                              <span className="ml-2 text-gray-900">{product.orderProduct?.quantity || 'N/A'}</span>
-                            </div>
-                            <div>
-                              <span className="font-medium text-gray-600">Temps estimé:</span>
-                              <span className="ml-2 text-gray-900">{product.estimated_creation_time}h</span>
-                            </div>
-                            {product.orderProduct?.unit_price && (
-                              <div className="col-span-2">
-                                <span className="font-medium text-gray-600">Prix unitaire:</span>
-                                <span className="ml-2 text-gray-900">{product.orderProduct.unit_price}€</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="bg-white p-4 rounded-lg border border-green-200/50 text-center text-gray-500">
-                        Aucun produit associé à cette commande
-                      </div>
+                )}
+                <div className="space-y-1">
+                  <span className="text-sm font-medium text-gray-600">Client</span>
+                  <div className="text-gray-900 font-semibold bg-white px-3 py-2 rounded-lg border border-blue-200/50">
+                    {order.clientInfo ? order.clientInfo.nom : order.client}
+                    {!order.clientInfo && order.client && (
+                      <span className="ml-2 text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full border border-amber-200">
+                        Texte libre
+                      </span>
                     )}
-                    {visibleViewFields.option_finition && (
-                      <div className="py-2 border-t border-green-200/50">
-                        <span className="font-medium text-gray-700 block mb-2">Options de finition:</span>
-                        <p className="text-gray-900 bg-white p-3 rounded-lg border border-green-200/50">
-                          {order.option_finition || '-'}
-                        </p>
-                      </div>
-                    )}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-sm font-medium text-gray-600">Commercial en charge</span>
+                  <div className="text-gray-900 font-semibold bg-white px-3 py-2 rounded-lg border border-blue-200/50">
+                    {order.commercial_en_charge || '-'}
+                  </div>
+                </div>
+                {order.date_limite_livraison_attendue && (
+                  <div className="space-y-1">
+                    <span className="text-sm font-medium text-gray-600">Date limite attendue</span>
+                    <div className="text-gray-900 font-semibold bg-white px-3 py-2 rounded-lg border border-blue-200/50">
+                      {formatDate(order.date_limite_livraison_attendue)}
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <span className="text-sm font-medium text-gray-600">Statut</span>
+                  <div className="bg-white px-3 py-2 rounded-lg border border-blue-200/50">
+                    {getStatusBadge(order.statut)}
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Right Column - Production Information */}
-              <div className="space-y-6">
-                {/* Production Section */}
-                <div className="bg-gradient-to-br from-purple-50 to-violet-50 rounded-xl p-6 border border-purple-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-purple-100 rounded-lg shadow-sm border border-purple-200">
-                      <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <h4 className="text-lg font-semibold text-gray-800">Production</h4>
+            {/* 2. Client Information */}
+            {order.clientInfo && (
+              <div className="bg-gradient-to-br from-cyan-50 to-blue-50 rounded-xl p-6 border border-cyan-200 shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-cyan-100 rounded-lg shadow-sm border border-cyan-200">
+                    <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
                   </div>
-                  <div className="space-y-4">
-                    {visibleViewFields.etape && (
-                      <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                        <span className="font-medium text-gray-700">Étape actuelle:</span>
-                        <span className="text-gray-900 bg-white px-3 py-1 rounded-full border border-purple-200/50 font-medium">
-                          {order.etape || '-'}
-                        </span>
+                  <h4 className="text-lg font-semibold text-gray-800">Informations client</h4>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="space-y-1">
+                    <span className="text-sm font-medium text-gray-600">Nom</span>
+                    <div className="text-gray-900 font-semibold bg-white px-3 py-2 rounded-lg border border-cyan-200/50">
+                      {order.clientInfo.nom}
+                    </div>
+                  </div>
+                  {order.clientInfo.code_client && (
+                    <div className="space-y-1">
+                      <span className="text-sm font-medium text-gray-600">Code client</span>
+                      <div className="text-gray-900 bg-white px-3 py-2 rounded-lg border border-cyan-200/50">
+                        {order.clientInfo.code_client}
                       </div>
-                    )}
-                    {visibleViewFields.atelier_concerne && (
-                      <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                        <span className="font-medium text-gray-700">Type atelier:</span>
-                        <span className="text-gray-900">{order.atelier_concerne || '-'}</span>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <span className="text-sm font-medium text-gray-600">Email</span>
+                    <div className="text-gray-900 bg-white px-3 py-2 rounded-lg border border-cyan-200/50">
+                      {order.clientInfo.email || '-'}
+                    </div>
+                  </div>
+                  {order.clientInfo.telephone && (
+                    <div className="space-y-1">
+                      <span className="text-sm font-medium text-gray-600">Téléphone</span>
+                      <div className="text-gray-900 bg-white px-3 py-2 rounded-lg border border-cyan-200/50">
+                        {order.clientInfo.telephone}
                       </div>
-                    )}
-                    {visibleViewFields.date_limite_livraison_estimee && (
-                      <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                        <span className="font-medium text-gray-700">Livraison estimée:</span>
-                        <span className="text-gray-900">{formatDate(order.date_limite_livraison_estimee)}</span>
+                    </div>
+                  )}
+                  {order.clientInfo.adresse && (
+                    <div className="space-y-1 md:col-span-2">
+                      <span className="text-sm font-medium text-gray-600">Adresse</span>
+                      <div className="text-gray-900 bg-white px-3 py-2 rounded-lg border border-cyan-200/50">
+                        {order.clientInfo.adresse}
                       </div>
-                    )}
-                    {visibleViewFields.date_limite_livraison_attendue && (
-                      <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                        <span className="font-medium text-gray-700">Délai souhaité:</span>
-                        <span className="text-gray-900">{formatDate(order.date_limite_livraison_attendue)}</span>
-                      </div>
-                    )}
-                    {visibleViewFields.estimated_work_time_minutes && order.estimated_work_time_minutes && (
-                      <div className="flex justify-between items-center py-2">
-                        <span className="font-medium text-gray-700">Temps de travail estimé:</span>
-                        <span className="text-gray-900">{Math.round(order.estimated_work_time_minutes / 60 * 10) / 10}h ({order.estimated_work_time_minutes} min)</span>
-                      </div>
-                    )}
-                    {visibleViewFields.bat && order.bat && (
-                      <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                        <span className="font-medium text-gray-700">BAT:</span>
-                        <span className="text-gray-900 bg-white px-3 py-1 rounded-full border border-purple-200/50 font-medium capitalize">
-                          {order.bat}
-                        </span>
-                      </div>
-                    )}
-                    {visibleViewFields.express && order.express && (
-                      <div className="flex justify-between items-center py-2 border-b border-purple-200/50">
-                        <span className="font-medium text-gray-700">Express:</span>
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium capitalize ${
-                          order.express === 'oui' 
-                            ? 'bg-red-100 text-red-800 border border-red-200' 
-                            : 'bg-green-100 text-green-800 border border-green-200'
-                        }`}>
-                          {order.express}
-                        </span>
-                      </div>
-                    )}
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <span className="text-sm font-medium text-gray-600">Type</span>
+                    <div className="bg-white px-3 py-2 rounded-lg border border-cyan-200/50">
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium capitalize ${
+                        order.clientInfo.type_client === 'entreprise' 
+                          ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                          : order.clientInfo.type_client === 'association'
+                          ? 'bg-green-100 text-green-800 border border-green-200'
+                          : 'bg-gray-100 text-gray-800 border border-gray-200'
+                      }`}>
+                        {order.clientInfo.type_client}
+                      </span>
+                    </div>
                   </div>
                 </div>
+              </div>
+            )}
 
-                {/* Additional Information Section */}
-                {visibleViewFields.commentaires && (
-                  <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-6 border border-orange-200 shadow-sm">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="p-2 bg-orange-100 rounded-lg shadow-sm border border-orange-200">
-                        <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </div>
-                      <h4 className="text-lg font-semibold text-gray-800">Informations complémentaires</h4>
+            {/* 3. Extra Information */}
+            <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-6 border border-orange-200 shadow-sm">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-orange-100 rounded-lg shadow-sm border border-orange-200">
+                  <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h4 className="text-lg font-semibold text-gray-800">Informations complémentaires</h4>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <span className="text-sm font-medium text-gray-600">Créé le</span>
+                  <div className="text-gray-900 bg-white px-3 py-2 rounded-lg border border-orange-200/50">
+                    {formatDate(order.createdAt)}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-sm font-medium text-gray-600">Modifié le</span>
+                  <div className="text-gray-900 bg-white px-3 py-2 rounded-lg border border-orange-200/50">
+                    {formatDate(order.updatedAt)}
+                  </div>
+                </div>
+                {order.commentaires && (
+                  <div className="space-y-1 md:col-span-2">
+                    <span className="text-sm font-medium text-gray-600">Commentaires généraux</span>
+                    <div className="text-gray-900 bg-white p-3 rounded-lg border border-orange-200/50">
+                      {order.commentaires}
                     </div>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center py-2 border-b border-orange-200/50">
-                        <span className="font-medium text-gray-700">Créé le:</span>
-                        <span className="text-gray-900">{formatDate(order.createdAt)}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-2 border-b border-orange-200/50">
-                        <span className="font-medium text-gray-700">Modifié le:</span>
-                        <span className="text-gray-900">{formatDate(order.updatedAt)}</span>
-                      </div>
-                      {order.commentaires && (
-                        <div className="py-2">
-                          <span className="font-medium text-gray-700 block mb-2">Commentaires:</span>
-                          <p className="text-gray-900 bg-white p-3 rounded-lg border border-orange-200/50">
-                            {order.commentaires}
-                          </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Each Product/Order Information */}
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200 shadow-sm">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-green-100 rounded-lg shadow-sm border border-green-200">
+                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                </div>
+                <h4 className="text-lg font-semibold text-gray-800">Détails des produits commandés</h4>
+              </div>
+              <div className="space-y-6">
+                {order.orderProducts && order.orderProducts.length > 0 ? (
+                  order.orderProducts.map((orderProduct, index) => (
+                    <div key={index} className="bg-white rounded-lg border border-green-200/50 shadow-sm overflow-hidden">
+                      {/* Product Header */}
+                      <div className="bg-gradient-to-r from-green-100 to-emerald-100 px-6 py-4 border-b border-green-200/50">
+                        <div className="flex justify-between items-center">
+                          <h5 className="text-lg font-semibold text-gray-800">
+                            {orderProduct.productInfo?.name || orderProduct.product?.name || 'Produit'}
+                          </h5>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm text-gray-600">ID: #{orderProduct.product_id}</span>
+                            {getStatusBadge(orderProduct.statut)}
+                          </div>
                         </div>
-                      )}
+                      </div>
+                      
+                      {/* Product Details */}
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                          <div className="space-y-1">
+                            <span className="text-sm font-medium text-gray-600">Quantité</span>
+                            <div className="text-gray-900 font-semibold bg-gray-50 px-3 py-2 rounded border">
+                              {orderProduct.quantity || 'N/A'}
+                            </div>
+                          </div>
+                          {orderProduct.numero_pms && (
+                            <div className="space-y-1">
+                              <span className="text-sm font-medium text-gray-600">Numéro PMS</span>
+                              <div className="text-gray-900 font-semibold bg-gray-50 px-3 py-2 rounded border">
+                                {orderProduct.numero_pms}
+                              </div>
+                            </div>
+                          )}
+                          {orderProduct.etape && (
+                            <div className="space-y-1">
+                              <span className="text-sm font-medium text-gray-600">Étape actuelle</span>
+                              <div className="text-gray-900 bg-gray-50 px-3 py-2 rounded border">
+                                <span className="capitalize font-medium">{orderProduct.etape}</span>
+                              </div>
+                            </div>
+                          )}
+                          {orderProduct.atelier_concerne && (
+                            <div className="space-y-1">
+                              <span className="text-sm font-medium text-gray-600">Atelier concerné</span>
+                              <div className="text-gray-900 bg-gray-50 px-3 py-2 rounded border">
+                                {orderProduct.atelier_concerne}
+                              </div>
+                            </div>
+                          )}
+                          {orderProduct.infograph_en_charge && (
+                            <div className="space-y-1">
+                              <span className="text-sm font-medium text-gray-600">Infographe en charge</span>
+                              <div className="text-gray-900 bg-gray-50 px-3 py-2 rounded border">
+                                {orderProduct.infograph_en_charge}
+                              </div>
+                            </div>
+                          )}
+                          {orderProduct.estimated_work_time_minutes && (
+                            <div className="space-y-1">
+                              <span className="text-sm font-medium text-gray-600">Temps de travail estimé</span>
+                              <div className="text-gray-900 bg-gray-50 px-3 py-2 rounded border">
+                                {Math.round(orderProduct.estimated_work_time_minutes / 60 * 10) / 10}h ({orderProduct.estimated_work_time_minutes} min)
+                              </div>
+                            </div>
+                          )}
+                          {orderProduct.date_limite_livraison_estimee && (
+                            <div className="space-y-1 md:col-span-2 lg:col-span-3">
+                              <span className="text-sm font-medium text-gray-600">Date limite de livraison estimée</span>
+                              <div className="text-gray-900 bg-gray-50 px-3 py-2 rounded border">
+                                {formatDate(orderProduct.date_limite_livraison_estimee)}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Options and Special Requirements */}
+                        {(orderProduct.bat || orderProduct.express) && (
+                          <div className="mt-4 pt-4 border-t border-gray-200">
+                            <span className="text-sm font-medium text-gray-600 block mb-2">Options spéciales</span>
+                            <div className="flex gap-2">
+                              {orderProduct.bat && (
+                                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                  orderProduct.bat === 'avec' 
+                                    ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                                    : 'bg-gray-100 text-gray-800 border border-gray-200'
+                                }`}>
+                                  BAT {orderProduct.bat}
+                                </span>
+                              )}
+                              {orderProduct.express && (
+                                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                  orderProduct.express === 'oui' 
+                                    ? 'bg-red-100 text-red-800 border border-red-200' 
+                                    : 'bg-green-100 text-green-800 border border-green-200'
+                                }`}>
+                                  Express {orderProduct.express}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Product Comments */}
+                        {orderProduct.commentaires && (
+                          <div className="mt-4 pt-4 border-t border-gray-200">
+                            <span className="text-sm font-medium text-gray-600 block mb-2">Commentaires produit</span>
+                            <div className="text-gray-700 bg-gray-50 p-3 rounded border">
+                              {orderProduct.commentaires}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Finitions section */}
+                        {visibleViewFields.option_finition && orderProduct.finitions && orderProduct.finitions.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-gray-200">
+                            <span className="text-sm font-medium text-gray-600 block mb-2">Finitions</span>
+                            <div className="space-y-2">
+                              {orderProduct.finitions.map((finition, finitionIndex) => (
+                                <div key={finitionIndex} className="flex items-center justify-between bg-purple-50 px-3 py-2 rounded-lg border border-purple-200">
+                                  <div className="flex-1">
+                                    <span className="text-purple-800 font-medium">
+                                      {finition.finition_name || finition.name || 'Finition'}
+                                    </span>
+                                   
+                                  </div>
+                                  <div className="p-1 bg-purple-100 rounded-lg">
+                                    <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a1.994 1.994 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                                    </svg>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  ))
+                ) : (
+                  <div className="bg-white p-8 rounded-lg border border-green-200/50 text-center text-gray-500">
+                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2M4 13h2m13-8V4a1 1 0 00-1-1H7a1 1 0 00-1 1v1M6 7h.01M18 7h.01" />
+                    </svg>
+                    <p className="font-medium">Aucun produit associé à cette commande</p>
                   </div>
                 )}
               </div>

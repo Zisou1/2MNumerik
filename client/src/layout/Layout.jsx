@@ -298,6 +298,18 @@ function Layout({ onLogout }) {
                   <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Clients</span>
                 </Link>
               </li>
+              <li>
+                <Link to="/atelier-tasks" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
+                  isActive('/atelier-tasks') 
+                    ? 'bg-[#00AABB] text-white' 
+                    : 'text-gray-700 hover:bg-[#00AABB] hover:text-white'
+                }`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                  </svg>
+                  <span className={`ml-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>Tâches Atelier</span>
+                </Link>
+              </li>
               {user?.role === 'admin' && (
                 <li>
                   <Link to="/statistics" className={`flex items-center px-2 py-2 rounded ${sidebarCollapsed ? 'md:justify-center' : ''} ${
