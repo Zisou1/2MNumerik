@@ -1064,7 +1064,7 @@ const DashboardPageClean = () => {
                     Express
                   </th>
                 )}
-                {(canEditOrders() || canDeleteOrders()) && (
+                {canDeleteOrders() && (
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
@@ -1153,31 +1153,18 @@ const DashboardPageClean = () => {
                       {renderInlineSelect(row, 'express', expressOptions)}
                     </td>
                   )}
-                  {(canEditOrders() || canDeleteOrders()) && (
+                  {canDeleteOrders() && (
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       <div className="flex items-center gap-2 action-button">
-                        {canEditOrders() && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEditOrder(row)
-                            }}
-                            className="text-indigo-600 hover:text-indigo-900 bg-indigo-100 hover:bg-indigo-200 px-2 py-1 rounded text-xs"
-                          >
-                            Modifier
-                          </button>
-                        )}
-                        {canDeleteOrders() && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteOrder(row.orderId)
-                            }}
-                            className="text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-2 py-1 rounded text-xs"
-                          >
-                            Supprimer
-                          </button>
-                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteOrder(row.orderId)
+                          }}
+                          className="text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-2 py-1 rounded text-xs"
+                        >
+                          Supprimer
+                        </button>
                       </div>
                     </td>
                   )}

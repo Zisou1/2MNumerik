@@ -43,21 +43,8 @@ class OrderController {
         // Atelier can only see products with etape 'impression' or 'finition' or 'découpe'
         productWhere.etape = { [Op.in]: ['impression', 'finition', 'découpe'] };
       } else if (userRole === 'infograph') {
-        // Infograph can see products assigned to them or unassigned products
-        if (!infographe) {
-          // If no specific infograph filter, show only products assigned to current user
-          productWhere[Op.or] = [
-            { infograph_en_charge: req.user.username },
-            { infograph_en_charge: null }
-          ];
-        }
-        // Infograph can see products with etape: conception, pré-presse
-        const allowedEtapes = ['conception', 'pré-presse'];
-        if (etape && allowedEtapes.includes(etape)) {
-          productWhere.etape = etape;
-        } else if (!etape) {
-          productWhere.etape = { [Op.in]: allowedEtapes };
-        }
+        // Infograph can see products with etape: conception, pré-presse, impression, finition, découpe
+        productWhere.etape = { [Op.in]: ['conception', 'pré-presse', 'impression', 'finition', 'découpe'] };
       }
       
       // Handle client filtering - search both legacy client field and new client relationship
@@ -285,8 +272,8 @@ class OrderController {
         // Atelier can only see orders with etape 'impression' or 'decoupe'
         whereClause.etape = { [Op.in]: ['impression', 'decoupe'] };
       } else if (userRole === 'infograph') {
-        // Infograph can see orders with etape: conception, pre-press, impression, decoupe (but NOT null values)
-        whereClause.etape = { [Op.in]: ['conception', 'pre-press', 'impression', 'decoupe'] };
+        // Infograph can see orders with etape: conception, pré-presse, impression, finition, découpe
+        whereClause.etape = { [Op.in]: ['conception', 'pré-presse', 'impression', 'finition', 'découpe'] };
       }
       // Commercial (or any other role) can see everything - no additional filtering
       
@@ -502,8 +489,8 @@ class OrderController {
           return res.status(403).json({ message: 'Vous n\'êtes pas autorisé à modifier cette commande' });
         }
       } else if (userRole === 'infograph') {
-        // Infograph can see orders with etape: conception, pre-press, impression, decoupe
-        const allowedEtapes = ['conception', 'pre-press', 'impression', 'decoupe'];
+        // Infograph can see orders with etape: conception, pré-presse, impression, finition, découpe
+        const allowedEtapes = ['conception', 'pré-presse', 'impression', 'finition', 'découpe'];
         if (!allowedEtapes.includes(order.etape)) {
           await transaction.rollback();
           return res.status(403).json({ message: 'Vous n\'êtes pas autorisé à modifier cette commande' });
@@ -517,17 +504,17 @@ class OrderController {
           // Commercial can change etape from undefined to 'conception'
           if (order.etape === null && etape === 'conception') {
             // Allowed transition
-          } else if (['conception', 'pre-press', 'impression', 'decoupe', 'impression-decoupe'].includes(etape)) {
+          } else if (['conception', 'pré-presse', 'impression', 'finition', 'découpe', 'impression-decoupe'].includes(etape)) {
             // Commercial can set any etape
           } else {
             await transaction.rollback();
             return res.status(400).json({ message: 'Étape non valide' });
           }
         } else if (userRole === 'infograph') {
-          // Infograph can transition: conception -> pre-press -> impression
-          if ((order.etape === 'conception' && etape === 'pre-press') ||
-              (order.etape === 'pre-press' && etape === 'impression') ||
-              (order.etape === 'impression' && etape === 'decoupe')) {
+          // Infograph can transition: conception -> pré-presse -> impression -> finition/découpe
+          if ((order.etape === 'conception' && etape === 'pré-presse') ||
+              (order.etape === 'pré-presse' && etape === 'impression') ||
+              (order.etape === 'impression' && ['finition', 'découpe'].includes(etape))) {
             // Allowed transitions
           } else {
             await transaction.rollback();
@@ -685,8 +672,8 @@ class OrderController {
         // Atelier can only see orders with etape 'impression' or 'decoupe'
         whereClause.etape = { [Op.in]: ['impression', 'decoupe'] };
       } else if (userRole === 'infograph') {
-        // Infograph can see orders with etape: conception, pre-press, impression, decoupe (but NOT null values)
-        whereClause.etape = { [Op.in]: ['conception', 'pre-press', 'impression', 'decoupe'] };
+        // Infograph can see orders with etape: conception, pré-presse, impression, finition, découpe
+        whereClause.etape = { [Op.in]: ['conception', 'pré-presse', 'impression', 'finition', 'découpe'] };
       }
       // Commercial (or any other role) can see everything - no additional filtering
 
@@ -735,17 +722,8 @@ class OrderController {
         // Atelier can only see products with etape 'impression' or 'finition' or 'découpe'
         productWhere.etape = { [Op.in]: ['impression', 'finition', 'découpe'] };
       } else if (userRole === 'infograph') {
-        // Infograph can see products assigned to them or unassigned products
-        if (!req.query.infographe) {
-          // If no specific infograph filter, show only products assigned to current user
-          productWhere[Op.or] = [
-            { infograph_en_charge: req.user.username },
-            { infograph_en_charge: null }
-          ];
-        }
-        // Infograph can see products with etape: conception, pré-presse
-        const allowedEtapes = ['conception', 'pré-presse'];
-        productWhere.etape = { [Op.in]: allowedEtapes };
+        // Infograph can see products with etape: conception, pré-presse, impression, finition, découpe
+        productWhere.etape = { [Op.in]: ['conception', 'pré-presse', 'impression', 'finition', 'découpe'] };
       }
 
       // Query OrderProduct table to get stats at product level
