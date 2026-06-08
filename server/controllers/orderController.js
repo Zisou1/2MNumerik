@@ -898,6 +898,14 @@ class OrderController {
 
         // Update existing OrderProducts
         for (const product of existingOrderProducts) {
+          // Check original express value to avoid overriding validated status
+          const currentOP = await OrderProduct.findByPk(product.orderProductId, { transaction });
+          let targetExpress = product.express;
+          if (targetExpress === 'oui' && userRole !== 'admin') {
+            if (!currentOP || currentOP.express !== 'oui') {
+              targetExpress = 'pending';
+            }
+          }
           await OrderProduct.update({
             product_id: product.productId,
             quantity: product.quantity,
@@ -913,7 +921,7 @@ class OrderController {
             atelier_concerne: product.atelier_concerne || null,
             commentaires: product.commentaires || null,
             bat: product.bat || null,
-            express: product.express || null,
+            express: targetExpress || null,
             pack_fin_annee: product.pack_fin_annee === 'true' || product.pack_fin_annee === true,
             type_sous_traitance: product.type_sous_traitance || null,
             supplier_id: product.supplier_id || null
@@ -943,28 +951,36 @@ class OrderController {
 
         // Create new order-product relationships (only for products without orderProductId)
         if (newProducts.length > 0) {
-          const orderProducts = newProducts.map(product => ({
-            order_id: id,
-            product_id: product.productId,
-            quantity: product.quantity,
-            unit_price: product.unitPrice || null,
-            // Product-specific fields
-            numero_pms: product.numero_pms || null,
-            infograph_en_charge: product.infograph_en_charge || null,
-            agent_impression: product.agent_impression || null,
-            machine_impression: product.machine_impression || null,
-            etape: product.etape || null,
-            statut: product.statut || 'en_cours',
-            estimated_work_time_minutes: product.estimated_work_time_minutes || null,
-            date_limite_livraison_estimee: product.date_limite_livraison_estimee ? new Date(product.date_limite_livraison_estimee) : null,
-            atelier_concerne: product.atelier_concerne || null,
-            commentaires: product.commentaires || null,
-            bat: product.bat || null,
-            express: product.express || null,
-            pack_fin_annee: product.pack_fin_annee === 'true' || product.pack_fin_annee === true,
-            type_sous_traitance: product.type_sous_traitance || null,
-            supplier_id: product.supplier_id || null
-          }));
+          const orderProducts = newProducts.map(product => {
+            let targetExpress = product.express;
+            if (targetExpress === 'oui' && userRole !== 'admin') {
+              targetExpress = 'pending';
+            } else if (!targetExpress) {
+              targetExpress = 'non';
+            }
+            return {
+              order_id: id,
+              product_id: product.productId,
+              quantity: product.quantity,
+              unit_price: product.unitPrice || null,
+              // Product-specific fields
+              numero_pms: product.numero_pms || null,
+              infograph_en_charge: product.infograph_en_charge || null,
+              agent_impression: product.agent_impression || null,
+              machine_impression: product.machine_impression || null,
+              etape: product.etape || null,
+              statut: product.statut || 'en_cours',
+              estimated_work_time_minutes: product.estimated_work_time_minutes || null,
+              date_limite_livraison_estimee: product.date_limite_livraison_estimee ? new Date(product.date_limite_livraison_estimee) : null,
+              atelier_concerne: product.atelier_concerne || null,
+              commentaires: product.commentaires || null,
+              bat: product.bat || null,
+              express: targetExpress,
+              pack_fin_annee: product.pack_fin_annee === 'true' || product.pack_fin_annee === true,
+              type_sous_traitance: product.type_sous_traitance || null,
+              supplier_id: product.supplier_id || null
+            };
+          });
 
           const createdOrderProducts = await OrderProduct.bulkCreate(orderProducts, { transaction, returning: true });
 
@@ -1907,9 +1923,13 @@ class OrderController {
       // Handle express field with role-based logic
       if (express !== undefined) {
         // If non-admin user tries to set express='oui', convert to 'pending' for approval
-        // If admin sets express='oui', keep it as 'oui' (pre-approved)
+        // ONLY if it wasn't already 'oui' (previously validated by admin)
         if (express === 'oui' && userRole !== 'admin') {
-          updateData.express = 'pending';
+          if (orderProduct.express !== 'oui') {
+            updateData.express = 'pending';
+          } else {
+            updateData.express = 'oui';
+          }
         } else {
           updateData.express = express;
         }
