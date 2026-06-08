@@ -14,10 +14,10 @@ class ExportController {
     try {
       // Get date range parameters and column selection from query
       const { dateFrom, dateTo, columns } = req.query;
-      
+
       // Parse selected columns
       const selectedColumns = columns ? columns.split(',') : null;
-      
+
       // Define the column mapping from frontend keys to export data
       const columnMapping = {
         'numero_affaire': 'N° Affaire',
@@ -42,7 +42,7 @@ class ExportController {
         'date_creation': 'Date Création',
         'date_modification': 'Date Modification'
       };
-      
+
       // Build where clause for date filtering
       let dateWhereClause = {};
       if (dateFrom || dateTo) {
@@ -92,14 +92,14 @@ class ExportController {
           order.orderProducts.forEach(orderProduct => {
             // Get the actual product status (prioritize product status over order status)
             const productStatus = orderProduct.statut || order.statut;
-            
+
             // Create full row data object
             const fullRowData = {
               'N° Affaire': order.numero_affaire || '',
               'N° DM': order.numero_dm || '',
               'Client': order.clientInfo?.nom || order.client || '',
               'Commercial': order.commercial_en_charge || '',
-              'Date Limite Livraison Attendue': order.date_limite_livraison_attendue ? 
+              'Date Limite Livraison Attendue': order.date_limite_livraison_attendue ?
                 new Date(order.date_limite_livraison_attendue).toLocaleString('fr-FR', {
                   day: '2-digit',
                   month: '2-digit',
@@ -107,7 +107,7 @@ class ExportController {
                   hour: '2-digit',
                   minute: '2-digit'
                 }) : '',
-              
+
               // Product-level fields
               'Produit': orderProduct.product?.name || orderProduct.productInfo?.name || 'Produit',
               'Quantité': orderProduct.quantity || '',
@@ -117,7 +117,7 @@ class ExportController {
               'Atelier': orderProduct.atelier_concerne || '',
               'Graphiste': orderProduct.infograph_en_charge || '',
               'Agent Impression': orderProduct.agent_impression || '',
-              'Délai Estimé': orderProduct.date_limite_livraison_estimee ? 
+              'Délai Estimé': orderProduct.date_limite_livraison_estimee ?
                 new Date(orderProduct.date_limite_livraison_estimee).toLocaleString('fr-FR', {
                   day: '2-digit',
                   month: '2-digit',
@@ -130,9 +130,9 @@ class ExportController {
               'Express': orderProduct.express || '',
               'Pack Fin Année': orderProduct.pack_fin_annee ? 'Oui' : 'Non',
               'Commentaires': orderProduct.commentaires || '',
-              
+
               // Timestamp fields
-              'Date Création': order.createdAt ? 
+              'Date Création': order.createdAt ?
                 new Date(order.createdAt).toLocaleString('fr-FR', {
                   day: '2-digit',
                   month: '2-digit',
@@ -140,7 +140,7 @@ class ExportController {
                   hour: '2-digit',
                   minute: '2-digit'
                 }) : '',
-              'Date Modification': order.updatedAt ? 
+              'Date Modification': order.updatedAt ?
                 new Date(order.updatedAt).toLocaleString('fr-FR', {
                   day: '2-digit',
                   month: '2-digit',
@@ -149,7 +149,7 @@ class ExportController {
                   minute: '2-digit'
                 }) : ''
             };
-            
+
             // Filter columns based on selection
             if (selectedColumns && selectedColumns.length > 0) {
               const filteredRowData = {};
@@ -196,7 +196,7 @@ class ExportController {
 
       // Set headers for file download
       const filename = `dashboard_export_${new Date().toISOString().split('T')[0]}.xlsx`;
-      
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', buffer.length);
@@ -218,12 +218,12 @@ class ExportController {
     try {
       // Get date range parameters from query
       const { dateFrom, dateTo } = req.query;
-      
+
       // Build where clause for date filtering
       let dateWhereClause = {
         status: 'completed'
       };
-      
+
       if (dateFrom || dateTo) {
         dateWhereClause.createdAt = {};
         if (dateFrom) {
@@ -242,7 +242,7 @@ class ExportController {
         attributes: ['id', 'username'],
         raw: true
       });
-      
+
       // Create a map of user IDs to usernames
       const userMap = {};
       users.forEach(user => {
@@ -265,13 +265,13 @@ class ExportController {
 
       // Transform tasks data for export with all available fields
       const tasksData = [];
-      
+
       tasks.forEach(task => {
         // Parse assigned users and convert IDs to names
         let assignedNames = [];
         if (task.assigned_to) {
           let assignedIds = [];
-          
+
           if (Array.isArray(task.assigned_to)) {
             assignedIds = task.assigned_to;
           } else if (typeof task.assigned_to === 'string') {
@@ -280,15 +280,14 @@ class ExportController {
               assignedIds = Array.isArray(parsed) ? parsed : [parsed];
             } catch (e) {
               // If it's not JSON, try to split by comma or treat as single value
-              assignedIds = task.assigned_to.includes(',') 
+              assignedIds = task.assigned_to.includes(',')
                 ? task.assigned_to.split(',').map(id => id.trim())
                 : [task.assigned_to];
             }
           } else {
             assignedIds = [task.assigned_to];
           }
-          
-          // Convert IDs to usernames
+
           assignedNames = assignedIds.map(id => {
             // Check if it's already a name (string) or an ID (number)
             const numericId = parseInt(id);
@@ -297,7 +296,7 @@ class ExportController {
             }
             // If it's not a numeric ID or not found in userMap, return as is (might already be a name)
             return id;
-          }).filter(name => name && name.trim() !== '');
+          }).filter(name => name !== undefined && name !== null && String(name).trim() !== '');
         }
 
         // Create base row data
@@ -307,7 +306,7 @@ class ExportController {
           'Description': task.description || '',
           'Statut': task.status || '',
           'Type Atelier': task.atelier_type || '',
-          'Date Début': task.started_at ? 
+          'Date Début': task.started_at ?
             new Date(task.started_at).toLocaleString('fr-FR', {
               day: '2-digit',
               month: '2-digit',
@@ -315,7 +314,7 @@ class ExportController {
               hour: '2-digit',
               minute: '2-digit'
             }) : '',
-          'Date Fin': task.completed_at ? 
+          'Date Fin': task.completed_at ?
             new Date(task.completed_at).toLocaleString('fr-FR', {
               day: '2-digit',
               month: '2-digit',
@@ -325,7 +324,7 @@ class ExportController {
             }) : '',
           'Créé par': task.creator?.username || '',
           'Notes': task.notes || '',
-          'Date Création': task.createdAt ? 
+          'Date Création': task.createdAt ?
             new Date(task.createdAt).toLocaleString('fr-FR', {
               day: '2-digit',
               month: '2-digit',
@@ -333,7 +332,7 @@ class ExportController {
               hour: '2-digit',
               minute: '2-digit'
             }) : '',
-          'Date Modification': task.updatedAt ? 
+          'Date Modification': task.updatedAt ?
             new Date(task.updatedAt).toLocaleString('fr-FR', {
               day: '2-digit',
               month: '2-digit',
@@ -389,7 +388,7 @@ class ExportController {
 
       // Set headers for file download
       const filename = `tasks_export_${new Date().toISOString().split('T')[0]}.xlsx`;
-      
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', buffer.length);
@@ -411,9 +410,9 @@ class ExportController {
     try {
       // Check if user is admin
       if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ 
+        return res.status(403).json({
           success: false,
-          message: 'Accès réservé aux administrateurs' 
+          message: 'Accès réservé aux administrateurs'
         });
       }
 
@@ -425,7 +424,7 @@ class ExportController {
 
       // Get date range parameters from query
       const { dateFrom, dateTo } = req.query;
-      
+
       // Build where clause for date filtering
       let dateWhereClause = {};
       if (dateFrom || dateTo) {
@@ -450,16 +449,16 @@ class ExportController {
         attributes: { exclude: ['password'] }, // Don't export passwords
         raw: true
       });
-      
+
       if (users.length > 0) {
         const usersWorksheet = XLSX.utils.json_to_sheet(users);
         XLSX.utils.book_append_sheet(workbook, usersWorksheet, 'Users');
       }
 
       // Export Clients table with date filtering
-      const clients = await Client.findAll({ 
+      const clients = await Client.findAll({
         where: dateWhereClause,
-        raw: true 
+        raw: true
       });
       if (clients.length > 0) {
         const clientsWorksheet = XLSX.utils.json_to_sheet(clients);
@@ -467,9 +466,9 @@ class ExportController {
       }
 
       // Export Products table with date filtering
-      const products = await Product.findAll({ 
+      const products = await Product.findAll({
         where: dateWhereClause,
-        raw: true 
+        raw: true
       });
       if (products.length > 0) {
         const productsWorksheet = XLSX.utils.json_to_sheet(products);
@@ -477,9 +476,9 @@ class ExportController {
       }
 
       // Export Orders table with date filtering
-      const orders = await Order.findAll({ 
+      const orders = await Order.findAll({
         where: dateWhereClause,
-        raw: true 
+        raw: true
       });
       if (orders.length > 0) {
         const ordersWorksheet = XLSX.utils.json_to_sheet(orders);
@@ -487,9 +486,9 @@ class ExportController {
       }
 
       // Export OrderProducts table (junction table) with date filtering
-      const orderProducts = await OrderProduct.findAll({ 
+      const orderProducts = await OrderProduct.findAll({
         where: dateWhereClause,
-        raw: true 
+        raw: true
       });
       if (orderProducts.length > 0) {
         const orderProductsWorksheet = XLSX.utils.json_to_sheet(orderProducts);
@@ -524,9 +523,9 @@ class ExportController {
         }
       }
 
-      const orderProductFinitions = await OrderProductFinition.findAll({ 
+      const orderProductFinitions = await OrderProductFinition.findAll({
         where: opfWhereClause,
-        raw: true 
+        raw: true
       });
       if (orderProductFinitions.length > 0) {
         const orderProductFinitionsWorksheet = XLSX.utils.json_to_sheet(orderProductFinitions);
@@ -534,9 +533,9 @@ class ExportController {
       }
 
       // Export AtelierTasks table with date filtering
-      const atelierTasks = await AtelierTask.findAll({ 
+      const atelierTasks = await AtelierTask.findAll({
         where: dateWhereClause,
-        raw: true 
+        raw: true
       });
       if (atelierTasks.length > 0) {
         const atelierTasksWorksheet = XLSX.utils.json_to_sheet(atelierTasks);
@@ -548,7 +547,7 @@ class ExportController {
 
       // Set headers for file download
       const filename = `database_export_${new Date().toISOString().split('T')[0]}.xlsx`;
-      
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', buffer.length);
@@ -570,7 +569,7 @@ class ExportController {
     try {
       // Get date range parameters from query
       const { dateFrom, dateTo } = req.query;
-      
+
       // Build where clause for date filtering
       let dateWhereClause = {};
       if (dateFrom || dateTo) {
@@ -591,7 +590,7 @@ class ExportController {
         attributes: ['id', 'username'],
         raw: true
       });
-      
+
       // Create a map of user IDs to usernames
       const userMap = {};
       users.forEach(user => {
@@ -637,13 +636,13 @@ class ExportController {
 
       // Transform finitions data for export
       const finitionsData = [];
-      
+
       orderProductFinitions.forEach(opf => {
         // Parse assigned agents and convert IDs to names
         let agentNames = [];
         if (opf.assigned_agents) {
           let agentIds = [];
-          
+
           if (Array.isArray(opf.assigned_agents)) {
             agentIds = opf.assigned_agents;
           } else if (typeof opf.assigned_agents === 'string') {
@@ -652,15 +651,14 @@ class ExportController {
               agentIds = Array.isArray(parsed) ? parsed : [parsed];
             } catch (e) {
               // If it's not JSON, try to split by comma or treat as single value
-              agentIds = opf.assigned_agents.includes(',') 
+              agentIds = opf.assigned_agents.includes(',')
                 ? opf.assigned_agents.split(',').map(id => id.trim())
                 : [opf.assigned_agents];
             }
           } else {
             agentIds = [opf.assigned_agents];
           }
-          
-          // Convert IDs to usernames
+
           agentNames = agentIds.map(id => {
             // Check if it's already a name (string) or an ID (number)
             const numericId = parseInt(id);
@@ -669,13 +667,13 @@ class ExportController {
             }
             // If it's not a numeric ID or not found in userMap, return as is (might already be a name)
             return id;
-          }).filter(name => name && name.trim() !== '');
+          }).filter(name => name !== undefined && name !== null && String(name).trim() !== '');
         }
 
         // Create base row data
         const totalQuantity = opf.orderProduct?.quantity || 0;
         const numberOfAgents = agentNames.length > 0 ? agentNames.length : 1;
-        
+
         // Special case: if quantity is 1, each agent gets 1
         let quantityPerAgent;
         if (totalQuantity === 1) {
@@ -690,7 +688,7 @@ class ExportController {
           'La Finition': opf.finition?.name || '',
           'Agent Impression': opf.orderProduct?.agent_impression || '',
           'BAT': opf.orderProduct?.bat || '',
-          'Date Début': opf.start_date ? 
+          'Date Début': opf.start_date ?
             new Date(opf.start_date).toLocaleString('fr-FR', {
               day: '2-digit',
               month: '2-digit',
@@ -698,7 +696,7 @@ class ExportController {
               hour: '2-digit',
               minute: '2-digit'
             }) : '',
-          'Date Fin': opf.end_date ? 
+          'Date Fin': opf.end_date ?
             new Date(opf.end_date).toLocaleString('fr-FR', {
               day: '2-digit',
               month: '2-digit',
@@ -709,7 +707,7 @@ class ExportController {
           'N° Affaire': opf.orderProduct?.order?.numero_affaire || '',
           'Client': opf.orderProduct?.order?.clientInfo?.nom || '',
           'Description Finition': opf.finition?.description || '',
-          'Date Création': opf.created_at ? 
+          'Date Création': opf.created_at ?
             new Date(opf.created_at).toLocaleString('fr-FR', {
               day: '2-digit',
               month: '2-digit',
@@ -717,7 +715,7 @@ class ExportController {
               hour: '2-digit',
               minute: '2-digit'
             }) : '',
-          'Date Modification': opf.updated_at ? 
+          'Date Modification': opf.updated_at ?
             new Date(opf.updated_at).toLocaleString('fr-FR', {
               day: '2-digit',
               month: '2-digit',
@@ -731,7 +729,7 @@ class ExportController {
         if (agentNames.length > 0) {
           agentNames.forEach((agentName, index) => {
             let agentQuantity;
-            
+
             // Special case: if original quantity is 1, everyone gets 1
             if (totalQuantity === 1) {
               agentQuantity = 1;
@@ -790,7 +788,7 @@ class ExportController {
 
       // Set headers for file download
       const filename = `finitions_export_${new Date().toISOString().split('T')[0]}.xlsx`;
-      
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', buffer.length);
@@ -812,16 +810,16 @@ class ExportController {
     try {
       // Check if user is admin
       if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ 
+        return res.status(403).json({
           success: false,
-          message: 'Accès réservé aux administrateurs' 
+          message: 'Accès réservé aux administrateurs'
         });
       }
 
       // Get database configuration from config file
       const env = process.env.NODE_ENV || 'development';
       const config = require('../config/config.js')[env];
-      
+
       const dbConfig = {
         host: config.host,
         user: config.username,
@@ -843,7 +841,7 @@ class ExportController {
       };
 
       const result = await mysqldump(dumpOptions);
-      
+
       // Combine schema (CREATE TABLE) and data (INSERT INTO) statements with proper foreign key handling
       // result.dump.schema contains CREATE TABLE statements
       // result.dump.data contains INSERT INTO statements
@@ -856,13 +854,13 @@ ${result.dump.data}
 
 /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
 /*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;`;
-      
+
       // Compress the SQL dump with gzip (reduces size by ~85-90%)
       const compressedData = await gzip(Buffer.from(sqlData, 'utf8'));
-      
+
       // Set headers for compressed SQL file download
       const filename = `database_export_${new Date().toISOString().split('T')[0]}.sql.gz`;
-      
+
       res.setHeader('Content-Type', 'application/gzip');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', compressedData.length);
