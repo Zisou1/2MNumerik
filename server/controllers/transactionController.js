@@ -236,7 +236,8 @@ const createTransaction = async (req, res) => {
         // Check stock availability
         const lotLocationOut = await LotLocation.findOne({
           where: { lot_id: lot_id, location_id: from_location },
-          transaction: t
+          transaction: t,
+          lock: t.LOCK.UPDATE
         });
 
         if (!lotLocationOut) {
@@ -284,7 +285,8 @@ const createTransaction = async (req, res) => {
         // Check stock availability
         const sourceLotLocation = await LotLocation.findOne({
           where: { lot_id: lot_id, location_id: from_location },
-          transaction: t
+          transaction: t,
+          lock: t.LOCK.UPDATE
         });
 
         if (!sourceLotLocation) {
@@ -398,6 +400,280 @@ const createTransaction = async (req, res) => {
   }
 };
 
+// Update a draft transaction (no inventory changes)
+const updateTransaction = async (req, res) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const {
+      item_id,
+      lot_id,
+      from_location,
+      to_location,
+      quantity,
+      type,
+      created_by
+    } = req.body;
+
+    const transaction = await Transaction.findByPk(id, { transaction: t });
+    if (!transaction) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    if (transaction.status !== 'draft') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Only draft transactions can be updated' });
+    }
+
+    if (!item_id) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Item ID is required' });
+    }
+
+    if (!quantity || quantity <= 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Quantity must be greater than 0' });
+    }
+
+    if (!type || !['IN', 'OUT', 'TRANSFER', 'ADJUSTMENT'].includes(type)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid transaction type' });
+    }
+
+    if (!created_by) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Created by is required' });
+    }
+
+    const item = await Item.findByPk(item_id, { transaction: t });
+    if (!item) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    let finalLotId = lot_id ?? transaction.lot_id;
+
+    switch (type) {
+      case 'IN': {
+        if (!to_location) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Destination location is required for IN transactions' });
+        }
+
+        const toLocationIn = await Location.findByPk(to_location, { transaction: t });
+        if (!toLocationIn) {
+          await t.rollback();
+          return res.status(404).json({ error: 'Destination location not found' });
+        }
+
+        if (!finalLotId) {
+          const lot_number = await generateLotNumber(item_id);
+          const newLot = await Lot.create({
+            lot_number,
+            item_id,
+            supplier_id: null,
+            manufacturing_date: null,
+            expiration_date: null,
+            received_date: new Date(),
+            initial_quantity: quantity,
+            status: 'active',
+            notes: null
+          }, { transaction: t });
+
+          finalLotId = newLot.id;
+        } else {
+          const existingLot = await Lot.findByPk(finalLotId, { transaction: t });
+          if (!existingLot) {
+            await t.rollback();
+            return res.status(404).json({ error: 'LOT not found' });
+          }
+
+          if (existingLot.item_id !== parseInt(item_id, 10)) {
+            await t.rollback();
+            return res.status(400).json({ error: 'LOT does not match the selected item' });
+          }
+
+          await existingLot.update({
+            initial_quantity: quantity
+          }, { transaction: t });
+        }
+        break;
+      }
+
+      case 'OUT': {
+        if (!from_location) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Source location is required for OUT transactions' });
+        }
+
+        if (!finalLotId) {
+          await t.rollback();
+          return res.status(400).json({ error: 'LOT ID is required for OUT transactions' });
+        }
+
+        const lot = await Lot.findByPk(finalLotId, { transaction: t });
+        if (!lot) {
+          await t.rollback();
+          return res.status(404).json({ error: 'LOT not found' });
+        }
+
+        if (lot.item_id !== parseInt(item_id, 10)) {
+          await t.rollback();
+          return res.status(400).json({ error: 'LOT does not match the selected item' });
+        }
+
+        const lotLocationOut = await LotLocation.findOne({
+          where: { lot_id: finalLotId, location_id: from_location },
+          transaction: t,
+          lock: t.LOCK.UPDATE
+        });
+
+        if (!lotLocationOut) {
+          await t.rollback();
+          return res.status(400).json({ error: 'LOT not found at source location' });
+        }
+
+        if (lotLocationOut.quantity < quantity) {
+          await t.rollback();
+          return res.status(400).json({
+            type: 'INSUFFICIENT_STOCK',
+            error: `Stock insuffisant. Disponible: ${lotLocationOut.quantity}, Demandé: ${quantity}`
+          });
+        }
+        break;
+      }
+
+      case 'TRANSFER': {
+        if (!from_location || !to_location) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Both source and destination locations are required for TRANSFER' });
+        }
+
+        if (from_location === to_location) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Source and destination locations must be different' });
+        }
+
+        if (!finalLotId) {
+          await t.rollback();
+          return res.status(400).json({ error: 'LOT ID is required for TRANSFER transactions' });
+        }
+
+        const [fromLocationTransfer, toLocationTransfer] = await Promise.all([
+          Location.findByPk(from_location, { transaction: t }),
+          Location.findByPk(to_location, { transaction: t })
+        ]);
+
+        if (!fromLocationTransfer || !toLocationTransfer) {
+          await t.rollback();
+          return res.status(404).json({ error: 'One or both locations not found' });
+        }
+
+        const lot = await Lot.findByPk(finalLotId, { transaction: t });
+        if (!lot) {
+          await t.rollback();
+          return res.status(404).json({ error: 'LOT not found' });
+        }
+
+        if (lot.item_id !== parseInt(item_id, 10)) {
+          await t.rollback();
+          return res.status(400).json({ error: 'LOT does not match the selected item' });
+        }
+
+        const sourceLotLocation = await LotLocation.findOne({
+          where: { lot_id: finalLotId, location_id: from_location },
+          transaction: t,
+          lock: t.LOCK.UPDATE
+        });
+
+        if (!sourceLotLocation) {
+          await t.rollback();
+          return res.status(400).json({ error: 'LOT not found at source location' });
+        }
+
+        if (sourceLotLocation.quantity < quantity) {
+          await t.rollback();
+          return res.status(400).json({
+            type: 'INSUFFICIENT_STOCK',
+            error: `Stock insuffisant à la source. Disponible: ${sourceLotLocation.quantity}, Demandé: ${quantity}`
+          });
+        }
+        break;
+      }
+
+      case 'ADJUSTMENT': {
+        if (!finalLotId) {
+          await t.rollback();
+          return res.status(400).json({ error: 'LOT ID is required for ADJUSTMENT transactions' });
+        }
+
+        const adjustmentLocation = to_location || from_location;
+        if (!adjustmentLocation) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Location is required for ADJUSTMENT transactions' });
+        }
+
+        const lot = await Lot.findByPk(finalLotId, { transaction: t });
+        if (!lot) {
+          await t.rollback();
+          return res.status(404).json({ error: 'LOT not found' });
+        }
+
+        if (lot.item_id !== parseInt(item_id, 10)) {
+          await t.rollback();
+          return res.status(400).json({ error: 'LOT does not match the selected item' });
+        }
+        break;
+      }
+
+      default:
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid transaction type' });
+    }
+
+    await transaction.update({
+      item_id,
+      lot_id: finalLotId,
+      from_location: from_location || null,
+      to_location: to_location || null,
+      quantity,
+      type,
+      created_by
+    }, { transaction: t });
+
+    await t.commit();
+
+    const updatedTransaction = await Transaction.findByPk(transaction.id, {
+      include: [
+        {
+          model: Item,
+          as: 'item'
+        },
+        {
+          model: Lot,
+          as: 'lot'
+        },
+        {
+          model: Location,
+          as: 'fromLocation'
+        },
+        {
+          model: Location,
+          as: 'toLocation'
+        }
+      ]
+    });
+
+    res.json(updatedTransaction);
+  } catch (error) {
+    await t.rollback();
+    console.error('Error updating transaction:', error);
+    res.status(500).json({ error: 'Failed to update transaction', details: error.message });
+  }
+};
+
 // Helper function to process inventory changes
 const processInventoryChanges = async (transaction, lotId, dbTransaction, lotData = {}) => {
   switch (transaction.type) {
@@ -405,7 +681,8 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
       // Check if LOT already exists at this location
       const existingLotLocation = await LotLocation.findOne({
         where: { lot_id: lotId, location_id: transaction.to_location },
-        transaction: dbTransaction
+        transaction: dbTransaction,
+        lock: dbTransaction.LOCK.UPDATE
       });
 
       if (existingLotLocation) {
@@ -426,7 +703,8 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
       // Remove quantity from source location
       const lotLocationOut = await LotLocation.findOne({
         where: { lot_id: lotId, location_id: transaction.from_location },
-        transaction: dbTransaction
+        transaction: dbTransaction,
+        lock: dbTransaction.LOCK.UPDATE
       });
 
       if (lotLocationOut) {
@@ -460,7 +738,8 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
       // Decrease quantity at source
       const sourceLotLocation = await LotLocation.findOne({
         where: { lot_id: lotId, location_id: transaction.from_location },
-        transaction: dbTransaction
+        transaction: dbTransaction,
+        lock: dbTransaction.LOCK.UPDATE
       });
 
       if (sourceLotLocation) {
@@ -472,7 +751,8 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
       // Increase quantity at destination
       const destLotLocation = await LotLocation.findOne({
         where: { lot_id: lotId, location_id: transaction.to_location },
-        transaction: dbTransaction
+        transaction: dbTransaction,
+        lock: dbTransaction.LOCK.UPDATE
       });
 
       if (destLotLocation) {
@@ -494,7 +774,8 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
       const adjustmentLocation = transaction.to_location || transaction.from_location;
       let lotLocationAdj = await LotLocation.findOne({
         where: { lot_id: lotId, location_id: adjustmentLocation },
-        transaction: dbTransaction
+        transaction: dbTransaction,
+        lock: dbTransaction.LOCK.UPDATE
       });
 
       if (!lotLocationAdj) {
@@ -576,7 +857,9 @@ const validateTransaction = async (req, res) => {
         where: { 
           lot_id: transaction.lot_id || finalLotId, 
           location_id: transaction.from_location 
-        }
+        },
+        transaction: t,
+        lock: t.LOCK.UPDATE
       });
 
       if (!lotLocation || lotLocation.quantity < transaction.quantity) {
@@ -816,6 +1099,7 @@ module.exports = {
   getAllTransactions,
   getTransactionById,
   createTransaction,
+  updateTransaction,
   validateTransaction,
   cancelTransaction,
   deleteTransaction,

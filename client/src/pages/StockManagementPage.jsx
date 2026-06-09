@@ -70,6 +70,252 @@ function StockManagementPage() {
     }
   }
 
+  // Generate and print physical inventory sheet
+  const handlePrintInventory = () => {
+    const tableData = getTableData()
+    const { items, locations } = tableData
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      alert('Veuillez autoriser les fenêtres pop-up pour imprimer la fiche d\'inventaire.')
+      return
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Inventaire Physique - Stock</title>
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+          @page {
+            size: landscape;
+            margin: 1.2cm;
+          }
+          body {
+            font-family: 'Poppins', sans-serif;
+            color: #1a1a1a;
+            margin: 0;
+            padding: 0;
+            font-size: 11px;
+            line-height: 1.4;
+          }
+          .header {
+            margin-bottom: 20px;
+            border-bottom: 3px solid #00AABB;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+          }
+          .header h1 {
+            margin: 0;
+            font-size: 22px;
+            color: #008899;
+            text-transform: uppercase;
+            font-weight: 700;
+          }
+          .header-date {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+          }
+          .meta-section {
+            width: 100%;
+            margin-bottom: 25px;
+            border-collapse: collapse;
+          }
+          .meta-section td {
+            padding: 6px 4px;
+            font-size: 11px;
+            vertical-align: middle;
+          }
+          .meta-section td.label {
+            font-weight: 600;
+            color: #444;
+            width: 12%;
+          }
+          .meta-section td.value {
+            border-bottom: 1px solid #ccc;
+            width: 38%;
+            padding-left: 8px;
+          }
+          table.stock-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+          }
+          table.stock-table tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          table.stock-table th {
+            border: 1.5px solid #444;
+            background-color: #f5f5f5;
+            color: #111;
+            font-weight: bold;
+            font-size: 10px;
+            text-transform: uppercase;
+            padding: 8px 4px;
+            text-align: center;
+          }
+          table.stock-table td {
+            border: 1.5px solid #666;
+            padding: 8px 10px;
+            vertical-align: middle;
+          }
+          table.stock-table td.item-name {
+            font-weight: 600;
+            color: #111;
+            font-size: 11px;
+          }
+          table.stock-table td.item-desc {
+            font-size: 9px;
+            color: #666;
+            font-weight: normal;
+          }
+          table.stock-table td.qty-cell {
+            text-align: center;
+            font-weight: 500;
+            width: 60px;
+            background-color: #fafafa;
+          }
+          table.stock-table td.blank-cell {
+            background-color: #fff;
+            width: 75px;
+            border: 2px solid #222;
+          }
+          table.stock-table td.total-cell {
+            font-weight: bold;
+            background-color: #f0f0f0;
+          }
+          .footer-section {
+            margin-top: 45px;
+            width: 100%;
+            page-break-inside: avoid;
+          }
+          .instructions {
+            float: left;
+            width: 50%;
+            font-size: 10px;
+            color: #555;
+            line-height: 1.5;
+          }
+          .instructions strong {
+            color: #333;
+          }
+          .signature-box {
+            float: right;
+            width: 40%;
+            border: 1px solid #999;
+            border-radius: 4px;
+            padding: 12px;
+            height: 70px;
+          }
+          .signature-title {
+            font-weight: bold;
+            font-size: 10px;
+            text-transform: uppercase;
+            color: #444;
+            margin-bottom: 35px;
+          }
+          .signature-line {
+            border-top: 1px dashed #999;
+            width: 100%;
+          }
+          .clear {
+            clear: both;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Fiche d'Inventaire Physique</h1>
+          <div class="header-date">Document d'inventaire mensuel</div>
+        </div>
+        
+        <table class="meta-section">
+          <tr>
+            <td class="label">Date d'inventaire :</td>
+            <td class="value">${new Date().toLocaleDateString('fr-FR')}</td>
+            <td class="label">Opérateur / Compteur :</td>
+            <td class="value"></td>
+          </tr>
+          <tr>
+            <td class="label">Date d'impression :</td>
+            <td class="value">${new Date().toLocaleString('fr-FR')}</td>
+            <td class="label">Visa Superviseur :</td>
+            <td class="value"></td>
+          </tr>
+        </table>
+        
+        <table class="stock-table">
+          <thead>
+            <tr>
+              <th rowspan="2" style="text-align: left;">Article</th>
+              ${locations.map(loc => `<th colspan="2">${loc.name}</th>`).join('')}
+              <th colspan="2">Total Général</th>
+            </tr>
+            <tr>
+              ${locations.map(() => `<th>Système</th><th>Réel</th>`).join('')}
+              <th>Système</th><th>Réel</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(item => {
+              const totalSys = Object.values(item.locations).reduce((sum, loc) => sum + (loc.quantity || 0), 0);
+              return `
+                <tr>
+                  <td class="item-name">
+                    ${item.name}
+                    ${item.description ? `<div class="item-desc">${item.description}</div>` : ''}
+                  </td>
+                  ${locations.map(loc => {
+                    const stock = item.locations[loc.id];
+                    const sysQty = stock ? stock.quantity : 0;
+                    return `
+                      <td class="qty-cell">${sysQty}</td>
+                      <td class="blank-cell"></td>
+                    `;
+                  }).join('')}
+                  <td class="qty-cell total-cell">${totalSys}</td>
+                  <td class="blank-cell" style="border: 2px solid #000;"></td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+        
+        <div class="footer-section">
+          <div class="instructions">
+            <strong>Instructions pour l'inventaire physique :</strong><br/>
+            1. Pour chaque article, comptez physiquement les pièces dans chaque emplacement.<br/>
+            2. Notez lisiblement la quantité réelle constatée dans la case <strong>"Réel"</strong> (stylo noir/bleu).<br/>
+            3. Si un article est absent d'un emplacement, notez <strong>"0"</strong> (ne laissez pas la case vide).<br/>
+            4. Une fois l'inventaire terminé, signez et remettez ce document à votre responsable.
+          </div>
+          <div class="signature-box">
+            <div class="signature-title">Signature de l'Opérateur & Date</div>
+            <div class="signature-line"></div>
+          </div>
+          <div class="clear"></div>
+        </div>
+        
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          }
+        </script>
+      </body>
+      </html>
+    `
+
+    printWindow.document.write(html)
+    printWindow.document.close()
+  }
+
   // Helper function to get location icon based on type
   const getLocationIcon = (type) => {
     const icons = {
@@ -315,8 +561,16 @@ function StockManagementPage() {
                               <p className="text-white/80 text-sm">Vue détaillée par emplacement</p>
                             </div>
                           </div>
-                          <div className="text-white/90 text-sm">
-                            <span className="bg-white/20 px-3 py-1 rounded-full">
+                          <div className="flex items-center space-x-3 text-white/90 text-sm">
+                            <button
+                              onClick={handlePrintInventory}
+                              className="flex items-center space-x-2 bg-white text-[#008899] hover:bg-white/95 px-3 py-1.5 rounded-lg font-semibold shadow transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
+                              title="Imprimer la fiche d'inventaire physique"
+                            >
+                              <span>🖨️</span>
+                              <span>Imprimer l'Inventaire</span>
+                            </button>
+                            <span className="bg-white/20 px-3 py-1.5 rounded-lg">
                               {tableData.items.length} articles
                             </span>
                           </div>

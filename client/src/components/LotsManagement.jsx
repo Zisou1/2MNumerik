@@ -219,18 +219,11 @@ function LotsManagement() {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+      <div className="mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Gestion des Lots</h1>
           <p className="text-gray-600">Gérer les lots d'articles avec traçabilité complète</p>
         </div>
-        <button
-          onClick={handleCreate}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-        >
-          <span className="text-xl">+</span>
-          Nouveau Lot
-        </button>
       </div>
 
       {/* Filters */}
