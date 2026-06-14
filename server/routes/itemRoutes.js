@@ -5,12 +5,14 @@ const {
   getItemById,
   createItem,
   updateItem,
-  deleteItem
+  deleteItem,
+  getStockMatrix
 } = require('../controllers/itemController');
 const { authenticateToken } = require('../middleware/auth');
 
 // Public routes
 router.get('/', getAllItems);
+router.get('/stock-matrix', authenticateToken, getStockMatrix);
 router.get('/:id', getItemById);
 
 // Protected routes (require authentication)

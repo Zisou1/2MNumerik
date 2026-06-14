@@ -1,4 +1,4 @@
-const { Item, Lot, LotLocation, Location, sequelize } = require('../models');
+const { Item, Lot, LotLocation, Location, sequelize, Sequelize } = require('../models');
 const { Op } = require('sequelize');
 
 // Get all items
@@ -182,6 +182,144 @@ const updateItem = async (req, res) => {
   }
 };
 
+// Get stock matrix (paginated items with aggregated location quantities)
+const getStockMatrix = async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      sortBy = 'name', 
+      sortOrder = 'ASC', 
+      search = '' 
+    } = req.query;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build where clause for search
+    const whereClause = {};
+    if (search) {
+      whereClause.name = {
+        [Op.like]: `%${search}%`
+      };
+    }
+
+    // 1. Fetch paginated items
+    const { count, rows: items } = await Item.findAndCountAll({
+      where: whereClause,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [[sortBy, sortOrder.toUpperCase()]],
+      attributes: ['id', 'name', 'description']
+    });
+
+    const itemIds = items.map(item => item.id);
+
+    // 2. Fetch all locations (for column headers)
+    const allLocations = await Location.findAll({
+      order: [['name', 'ASC']],
+      attributes: ['id', 'name', 'type']
+    });
+
+    // 3. Compute global KPI stats
+    const totalItems = await Item.count();
+    const totalLocations = allLocations.length;
+    
+    // Out of stock = Count of unique lot_locations where quantity = 0
+    const outOfStockCount = await LotLocation.count({
+      where: { quantity: 0 }
+    });
+
+    // Low stock = Count of unique lot_locations where (quantity - reserved_quantity) > 0 and <= minimum_quantity and minimum_quantity > 0
+    const lowStockCount = await LotLocation.count({
+      where: sequelize.literal('(quantity - reserved_quantity) > 0 AND minimum_quantity > 0 AND (quantity - reserved_quantity) <= minimum_quantity')
+    });
+
+    // Total quantity = sum of all lot_location quantities
+    const totalQuantityResult = await LotLocation.sum('quantity');
+    const totalQuantity = totalQuantityResult || 0;
+
+    const summary = {
+      totalItems,
+      totalLocations,
+      outOfStockCount,
+      lowStockCount,
+      totalQuantity
+    };
+
+    if (itemIds.length === 0) {
+      return res.json({
+        items: [],
+        locations: allLocations,
+        totalCount: count,
+        totalPages: Math.ceil(count / parseInt(limit)),
+        currentPage: parseInt(page),
+        summary
+      });
+    }
+
+    // 4. Fetch aggregated stock quantities for the paginated items per location
+    const stockMatrixQuery = `
+      SELECT 
+        lot.item_id AS item_id,
+        ll.location_id AS location_id,
+        SUM(ll.quantity) AS quantity,
+        SUM(ll.minimum_quantity) AS minimum_quantity,
+        SUM(ll.reserved_quantity) AS reserved_quantity
+      FROM lot_locations ll
+      INNER JOIN lots lot ON ll.lot_id = lot.id
+      WHERE lot.item_id IN (:itemIds)
+      GROUP BY lot.item_id, ll.location_id
+    `;
+
+    const stockLevels = await sequelize.query(stockMatrixQuery, {
+      replacements: { itemIds },
+      type: Sequelize.QueryTypes.SELECT
+    });
+
+    // Map query results to structured objects
+    const itemMap = new Map();
+    items.forEach(item => {
+      itemMap.set(item.id, {
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        locations: {}
+      });
+    });
+
+    stockLevels.forEach(row => {
+      const itemObj = itemMap.get(row.item_id);
+      if (itemObj) {
+        const qty = parseInt(row.quantity, 10) || 0;
+        const minQty = parseInt(row.minimum_quantity, 10) || 0;
+        const reservedQty = parseInt(row.reserved_quantity, 10) || 0;
+        const availableQty = qty - reservedQty;
+        const isLowStock = availableQty > 0 && minQty > 0 && availableQty <= minQty;
+
+        itemObj.locations[row.location_id] = {
+          quantity: qty,
+          minimum_quantity: minQty,
+          reserved_quantity: reservedQty,
+          available_quantity: availableQty,
+          isLowStock: isLowStock
+        };
+      }
+    });
+
+    res.json({
+      items: Array.from(itemMap.values()),
+      locations: allLocations,
+      totalCount: count,
+      totalPages: Math.ceil(count / parseInt(limit)),
+      currentPage: parseInt(page),
+      summary
+    });
+  } catch (error) {
+    console.error('Error fetching stock matrix:', error);
+    res.status(500).json({ error: 'Failed to fetch stock matrix' });
+  }
+};
+
 // Delete item
 const deleteItem = async (req, res) => {
   try {
@@ -205,5 +343,6 @@ module.exports = {
   getItemById,
   createItem,
   updateItem,
-  deleteItem
+  deleteItem,
+  getStockMatrix
 };

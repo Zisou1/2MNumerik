@@ -39,6 +39,14 @@ module.exports = (sequelize) => {
       validate: {
         min: 0
       }
+    },
+    reserved_quantity: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      validate: {
+        min: 0
+      }
     }
   }, {
     tableName: 'lot_locations',

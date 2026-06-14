@@ -21,6 +21,8 @@ const itemRoutes = require('./routes/itemRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const lotRoutes = require('./routes/lots');
+const transformationRoutes = require('./routes/transformationRoutes');
+const { startReservationCleanupJob } = require('./services/stockReservationCleanup');
 
 const app = express();
 const server = createServer(app);
@@ -201,6 +203,7 @@ app.use('/api/items', itemRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/lots', lotRoutes);
+app.use('/api/transformations', transformationRoutes);
 
 // Initialize database and start server
 const startServer = async () => {
@@ -214,6 +217,9 @@ const startServer = async () => {
       console.log(`Local access: http://localhost:${PORT}`);
       console.log(`Network access: http://[your-local-ip]:${PORT}`);
       console.log(`WebSocket server ready for connections`);
+      
+      // Start reservation cleanup background task
+      startReservationCleanupJob();
     });
   } catch (error) {
     console.error('Failed to start server:', error);

@@ -623,6 +623,14 @@ export const stockAPI = {
     return response.blob()
   },
 
+  getStockMatrix: (params = {}) => {
+    const queryString = Object.keys(params)
+      .filter(key => params[key] !== '' && params[key] !== null && params[key] !== undefined)
+      .map(key => `${key}=${encodeURIComponent(params[key])}`)
+      .join('&');
+    return apiCall(`/items/stock-matrix${queryString ? '?' + queryString : ''}`);
+  },
+
   // Transactions
   getTransactions: (params = {}) => {
     const queryString = Object.keys(params)
@@ -659,4 +667,36 @@ export const stockAPI = {
   }),
 }
 
-export default { apiCall, authAPI, userAPI, orderAPI, productAPI, clientAPI, finitionAPI, statisticsAPI, exportAPI, atelierTaskAPI, supplierAPI, stockAPI }
+// Transformation API calls
+export const transformationAPI = {
+  getTransformations: (params = {}) => {
+    const queryString = Object.keys(params)
+      .filter(key => params[key] !== '' && params[key] !== null && params[key] !== undefined)
+      .map(key => `${key}=${encodeURIComponent(params[key])}`)
+      .join('&');
+    return apiCall(`/transformations${queryString ? '?' + queryString : ''}`);
+  },
+
+  getTransformation: (id) => apiCall(`/transformations/${id}`),
+
+  createTransformation: (data) => apiCall('/transformations', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+
+  updateTransformation: (id, data) => apiCall(`/transformations/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+
+  updateTransformationStatus: (id, statusData) => apiCall(`/transformations/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(statusData),
+  }),
+
+  deleteTransformation: (id) => apiCall(`/transformations/${id}`, {
+    method: 'DELETE',
+  }),
+}
+
+export default { apiCall, authAPI, userAPI, orderAPI, productAPI, clientAPI, finitionAPI, statisticsAPI, exportAPI, atelierTaskAPI, supplierAPI, stockAPI, transformationAPI }

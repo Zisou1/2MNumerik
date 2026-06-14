@@ -245,12 +245,19 @@ const createTransaction = async (req, res) => {
           return res.status(400).json({ error: 'LOT not found at source location' });
         }
 
-        if (lotLocationOut.quantity < quantity) {
+        const availableStockOut = lotLocationOut.quantity - lotLocationOut.reserved_quantity;
+        if (availableStockOut < quantity) {
           await t.rollback();
           return res.status(400).json({ 
             type: 'INSUFFICIENT_STOCK',
-            error: `Stock insuffisant. Disponible: ${lotLocationOut.quantity}, Demandé: ${quantity}` 
+            error: `Stock insuffisant. Disponible: ${availableStockOut}, Demandé: ${quantity}` 
           });
+        }
+
+        if (!shouldProcessInventory) {
+          await lotLocationOut.update({
+            reserved_quantity: lotLocationOut.reserved_quantity + quantity
+          }, { transaction: t });
         }
 
         finalLotId = lot_id;
@@ -294,12 +301,19 @@ const createTransaction = async (req, res) => {
           return res.status(400).json({ error: 'LOT not found at source location' });
         }
 
-        if (sourceLotLocation.quantity < quantity) {
+        const availableStockTransfer = sourceLotLocation.quantity - sourceLotLocation.reserved_quantity;
+        if (availableStockTransfer < quantity) {
           await t.rollback();
           return res.status(400).json({ 
             type: 'INSUFFICIENT_STOCK',
-            error: `Stock insuffisant à la source. Disponible: ${sourceLotLocation.quantity}, Demandé: ${quantity}` 
+            error: `Stock insuffisant à la source. Disponible: ${availableStockTransfer}, Demandé: ${quantity}` 
           });
+        }
+
+        if (!shouldProcessInventory) {
+          await sourceLotLocation.update({
+            reserved_quantity: sourceLotLocation.reserved_quantity + quantity
+          }, { transaction: t });
         }
 
         finalLotId = lot_id;
@@ -427,6 +441,20 @@ const updateTransaction = async (req, res) => {
       return res.status(400).json({ error: 'Only draft transactions can be updated' });
     }
 
+    // Release old reservation if it was OUT or TRANSFER
+    if (transaction.type === 'OUT' || transaction.type === 'TRANSFER') {
+      const oldLotLocation = await LotLocation.findOne({
+        where: { lot_id: transaction.lot_id, location_id: transaction.from_location },
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      });
+      if (oldLotLocation) {
+        await oldLotLocation.update({
+          reserved_quantity: Math.max(0, oldLotLocation.reserved_quantity - transaction.quantity)
+        }, { transaction: t });
+      }
+    }
+
     if (!item_id) {
       await t.rollback();
       return res.status(400).json({ error: 'Item ID is required' });
@@ -535,13 +563,20 @@ const updateTransaction = async (req, res) => {
           return res.status(400).json({ error: 'LOT not found at source location' });
         }
 
-        if (lotLocationOut.quantity < quantity) {
+        const availableStock = lotLocationOut.quantity - lotLocationOut.reserved_quantity;
+        if (availableStock < quantity) {
           await t.rollback();
           return res.status(400).json({
             type: 'INSUFFICIENT_STOCK',
-            error: `Stock insuffisant. Disponible: ${lotLocationOut.quantity}, Demandé: ${quantity}`
+            error: `Stock insuffisant. Disponible: ${availableStock}, Demandé: ${quantity}`
           });
         }
+
+        // Apply new reservation since this is draft
+        await lotLocationOut.update({
+          reserved_quantity: lotLocationOut.reserved_quantity + quantity
+        }, { transaction: t });
+
         break;
       }
 
@@ -593,13 +628,20 @@ const updateTransaction = async (req, res) => {
           return res.status(400).json({ error: 'LOT not found at source location' });
         }
 
-        if (sourceLotLocation.quantity < quantity) {
+        const availableStock = sourceLotLocation.quantity - sourceLotLocation.reserved_quantity;
+        if (availableStock < quantity) {
           await t.rollback();
           return res.status(400).json({
             type: 'INSUFFICIENT_STOCK',
-            error: `Stock insuffisant à la source. Disponible: ${sourceLotLocation.quantity}, Demandé: ${quantity}`
+            error: `Stock insuffisant à la source. Disponible: ${availableStock}, Demandé: ${quantity}`
           });
         }
+
+        // Apply new reservation since this is draft
+        await sourceLotLocation.update({
+          reserved_quantity: sourceLotLocation.reserved_quantity + quantity
+        }, { transaction: t });
+
         break;
       }
 
@@ -862,11 +904,23 @@ const validateTransaction = async (req, res) => {
         lock: t.LOCK.UPDATE
       });
 
-      if (!lotLocation || lotLocation.quantity < transaction.quantity) {
+      if (!lotLocation) {
+        await t.rollback();
+        return res.status(400).json({ error: 'LOT not found at source location' });
+      }
+
+      // If it was draft, it held a reservation. Release it now.
+      if (transaction.status === 'draft') {
+        await lotLocation.update({
+          reserved_quantity: Math.max(0, lotLocation.reserved_quantity - transaction.quantity)
+        }, { transaction: t });
+      }
+
+      if (lotLocation.quantity < transaction.quantity) {
         await t.rollback();
         return res.status(400).json({ 
           type: 'INSUFFICIENT_STOCK',
-          error: `Stock insuffisant pour valider cette transaction. Disponible: ${lotLocation?.quantity || 0}, Demandé: ${transaction.quantity}` 
+          error: `Stock insuffisant pour valider cette transaction. Disponible: ${lotLocation.quantity}, Demandé: ${transaction.quantity}` 
         });
       }
     }
@@ -936,6 +990,24 @@ const cancelTransaction = async (req, res) => {
     if (transaction.status === 'cancelled') {
       await t.rollback();
       return res.status(400).json({ error: 'Transaction is already cancelled' });
+    }
+
+    // For draft transactions, release the reservation if it's OUT or TRANSFER
+    if ((transaction.type === 'OUT' || transaction.type === 'TRANSFER') && transaction.status === 'draft') {
+      const lotLocation = await LotLocation.findOne({
+        where: { 
+          lot_id: transaction.lot_id, 
+          location_id: transaction.from_location 
+        },
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      });
+
+      if (lotLocation) {
+        await lotLocation.update({
+          reserved_quantity: Math.max(0, lotLocation.reserved_quantity - transaction.quantity)
+        }, { transaction: t });
+      }
     }
 
     // For draft transactions, no inventory reversal is needed since no changes were made
@@ -1013,23 +1085,78 @@ const cancelTransaction = async (req, res) => {
 
 // Delete transaction (only drafts)
 const deleteTransaction = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params;
 
-    const transaction = await Transaction.findByPk(id);
+    const transaction = await Transaction.findByPk(id, { transaction: t });
     if (!transaction) {
+      await t.rollback();
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
     if (transaction.status !== 'draft') {
+      await t.rollback();
       return res.status(400).json({ 
         error: 'Only draft transactions can be deleted. Use cancel for other statuses.' 
       });
     }
 
-    await transaction.destroy();
+    // Release reservation if it is OUT or TRANSFER
+    if (transaction.type === 'OUT' || transaction.type === 'TRANSFER') {
+      const lotLocation = await LotLocation.findOne({
+        where: { 
+          lot_id: transaction.lot_id, 
+          location_id: transaction.from_location 
+        },
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      });
+
+      if (lotLocation) {
+        await lotLocation.update({
+          reserved_quantity: Math.max(0, lotLocation.reserved_quantity - transaction.quantity)
+        }, { transaction: t });
+      }
+    }
+
+    // Clean up any unused lots for IN transactions
+    if (transaction.type === 'IN' && transaction.lot_id) {
+      const [otherTransactions, lotLocations] = await Promise.all([
+        Transaction.count({
+          where: {
+            lot_id: transaction.lot_id,
+            id: { [Op.ne]: transaction.id },
+            status: { [Op.ne]: 'cancelled' }
+          },
+          transaction: t
+        }),
+        LotLocation.findAll({
+          where: { lot_id: transaction.lot_id },
+          transaction: t
+        })
+      ]);
+
+      const totalQuantity = lotLocations.reduce((sum, ll) => sum + ll.quantity, 0);
+
+      if (otherTransactions === 0 && totalQuantity === 0) {
+        await LotLocation.destroy({
+          where: { lot_id: transaction.lot_id },
+          transaction: t
+        });
+
+        await Lot.destroy({
+          where: { id: transaction.lot_id },
+          transaction: t
+        });
+      }
+    }
+
+    await transaction.destroy({ transaction: t });
+    await t.commit();
     res.json({ message: 'Transaction deleted successfully' });
   } catch (error) {
+    await t.rollback();
     console.error('Error deleting transaction:', error);
     res.status(500).json({ error: 'Failed to delete transaction' });
   }
