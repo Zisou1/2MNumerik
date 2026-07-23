@@ -199,6 +199,75 @@ const createTransaction = async (req, res) => {
       return res.status(404).json({ error: 'Item not found' });
     }
 
+    // Validate dates for IN transactions (or if provided)
+    if (manufacturing_date) {
+      const mDate = new Date(manufacturing_date);
+      if (isNaN(mDate.getTime())) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid manufacturing date format' });
+      }
+      if (mDate > new Date()) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Manufacturing date cannot be in the future' });
+      }
+    }
+
+    if (expiration_date) {
+      const eDate = new Date(expiration_date);
+      if (isNaN(eDate.getTime())) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid expiration date format' });
+      }
+    }
+
+    if (manufacturing_date && expiration_date) {
+      const mDate = new Date(manufacturing_date);
+      const eDate = new Date(expiration_date);
+      if (eDate <= mDate) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Expiration date must be after manufacturing date' });
+      }
+    }
+
+    // Verify supplier if supplier_id is provided
+    if (supplier_id) {
+      const supplier = await Supplier.findByPk(supplier_id, { transaction: t });
+      if (!supplier) {
+        await t.rollback();
+        return res.status(404).json({ error: 'Supplier not found' });
+      }
+    }
+
+    // Verify lot if lot_id is provided
+    if (lot_id) {
+      const lot = await Lot.findByPk(lot_id, { transaction: t });
+      if (!lot) {
+        await t.rollback();
+        return res.status(404).json({ error: 'LOT not found' });
+      }
+      if (lot.item_id !== parseInt(item_id, 10)) {
+        await t.rollback();
+        return res.status(400).json({ error: 'LOT does not match the selected item' });
+      }
+    }
+
+    // Verify locations if specified
+    if (from_location) {
+      const fromLoc = await Location.findByPk(from_location, { transaction: t });
+      if (!fromLoc) {
+        await t.rollback();
+        return res.status(404).json({ error: 'Source location not found' });
+      }
+    }
+
+    if (to_location) {
+      const toLoc = await Location.findByPk(to_location, { transaction: t });
+      if (!toLoc) {
+        await t.rollback();
+        return res.status(404).json({ error: 'Destination location not found' });
+      }
+    }
+
     let finalLotId = lot_id;
 
     // Validate transaction feasibility without making changes (for draft status)
@@ -212,20 +281,21 @@ const createTransaction = async (req, res) => {
           return res.status(400).json({ error: 'Destination location is required for IN transactions' });
         }
 
-        const toLocationIn = await Location.findByPk(to_location, { transaction: t });
-        if (!toLocationIn) {
+        if (from_location) {
           await t.rollback();
-          return res.status(404).json({ error: 'Destination location not found' });
+          return res.status(400).json({ error: 'Source location is not allowed for IN transactions' });
         }
-
-        // For IN transactions, LOT will be created during validation
-        // No inventory changes in draft mode
         break;
 
       case 'OUT':
         if (!from_location) {
           await t.rollback();
           return res.status(400).json({ error: 'Source location is required for OUT transactions' });
+        }
+
+        if (to_location) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Destination location is not allowed for OUT transactions' });
         }
 
         if (!lot_id) {
@@ -277,16 +347,6 @@ const createTransaction = async (req, res) => {
         if (!lot_id) {
           await t.rollback();
           return res.status(400).json({ error: 'LOT ID is required for TRANSFER transactions' });
-        }
-
-        const [fromLocationTransfer, toLocationTransfer] = await Promise.all([
-          Location.findByPk(from_location, { transaction: t }),
-          Location.findByPk(to_location, { transaction: t })
-        ]);
-
-        if (!fromLocationTransfer || !toLocationTransfer) {
-          await t.rollback();
-          return res.status(404).json({ error: 'One or both locations not found' });
         }
 
         // Check stock availability
@@ -341,7 +401,9 @@ const createTransaction = async (req, res) => {
 
     // For IN transactions, create lot immediately (even for draft status)
     if (type === 'IN' && !finalLotId) {
-      const lot_number = await generateLotNumber(item_id);
+      const lot_number = use_custom_lot_number 
+        ? await generateCustomLotNumber(item.name)
+        : await generateLotNumber(item_id);
 
       const newLot = await Lot.create({
         lot_number,
@@ -410,6 +472,12 @@ const createTransaction = async (req, res) => {
   } catch (error) {
     await t.rollback();
     console.error('Error creating transaction:', error);
+    if (error.name === 'SequelizeValidationError' || error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({
+        error: 'Validation error',
+        details: error.errors ? error.errors.map(e => e.message) : error.message
+      });
+    }
     res.status(500).json({ error: 'Failed to create transaction', details: error.message });
   }
 };

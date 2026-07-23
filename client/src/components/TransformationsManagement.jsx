@@ -140,7 +140,14 @@ function TransformationsManagement() {
       return
     }
     const filtered = lots.filter(lot => lot.item_id === parseInt(formData.input_item_id, 10) && lot.status === 'active')
-    setAvailableInputLots(filtered)
+    
+    // Sort available lots chronologically (oldest first - FIFO)
+    const sorted = [...filtered].sort((a, b) => {
+      const dateA = new Date(a.received_date || a.created_at || 0);
+      const dateB = new Date(b.received_date || b.created_at || 0);
+      return dateA - dateB;
+    });
+    setAvailableInputLots(sorted)
     
     // Clear lot and locations when item changes
     setFormData(prev => ({
@@ -151,6 +158,19 @@ function TransformationsManagement() {
     setInputLotLocations([])
     setSelectedLotLocData(null)
   }, [formData.input_item_id, lots])
+
+  // Pre-select the oldest lot (first in FIFO list) as default for new transformations
+  useEffect(() => {
+    if (modalMode === 'create' && availableInputLots.length > 0) {
+      const hasValidSelection = availableInputLots.some(lot => lot.id.toString() === formData.input_lot_id.toString());
+      if (!hasValidSelection) {
+        setFormData(prev => ({
+          ...prev,
+          input_lot_id: availableInputLots[0].id.toString()
+        }));
+      }
+    }
+  }, [availableInputLots, modalMode]);
 
   // Fetch locations mapped to selected input lot
   useEffect(() => {

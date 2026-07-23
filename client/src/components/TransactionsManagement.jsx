@@ -18,6 +18,8 @@ function TransactionsManagement() {
   const [validateConfirm, setValidateConfirm] = useState(null)
   const [validatorName, setValidatorName] = useState('')
   const [stockErrorDialog, setStockErrorDialog] = useState(null)
+  const [itemSearchText, setItemSearchText] = useState('')
+  const [showItemDropdown, setShowItemDropdown] = useState(false)
 
   // Pagination and filtering states
   const [currentPage, setCurrentPage] = useState(1)
@@ -162,7 +164,7 @@ function TransactionsManagement() {
     }
   }
 
-  // Filter available lots based on item and location (for TRANSFER/OUT)
+  // Filter available lots based on item and location (for TRANSFER/OUT/ADJUSTMENT)
   useEffect(() => {
     if (formData.type === 'IN') {
       // For IN transactions, we don't need to select existing lots (they will be created)
@@ -175,17 +177,39 @@ function TransactionsManagement() {
       return
     }
 
-    // For OUT/TRANSFER/ADJUSTMENT, filter lots by item
-    let filtered = lots.filter(lot => lot.item_id === parseInt(formData.item_id))
+    // For OUT/TRANSFER/ADJUSTMENT, filter lots by item and sort chronologically (oldest first - FIFO)
+    let filtered = lots
+      .filter(lot => lot.item_id === parseInt(formData.item_id))
+      .sort((a, b) => {
+        const dateA = new Date(a.received_date || a.created_at || 0);
+        const dateB = new Date(b.received_date || b.created_at || 0);
+        return dateA - dateB;
+      });
 
-    // For TRANSFER and OUT, also filter by source location
-    if ((formData.type === 'TRANSFER' || formData.type === 'OUT') && formData.from_location) {
-      // We need to fetch lot locations to know which lots are available at the source
-      fetchLotsAtLocation(formData.from_location, filtered)
+    // Determine location to fetch lot availability from
+    const selectedLocation = (formData.type === 'TRANSFER' || formData.type === 'OUT')
+      ? formData.from_location
+      : (formData.from_location || formData.to_location);
+
+    if (selectedLocation) {
+      fetchLotsAtLocation(selectedLocation, filtered)
     } else {
       setAvailableLots(filtered)
     }
-  }, [formData.item_id, formData.from_location, formData.type, lots])
+  }, [formData.item_id, formData.from_location, formData.to_location, formData.type, lots])
+
+  // Pre-select the oldest lot (first in FIFO list) as default for new OUT/TRANSFER/ADJUSTMENT transactions
+  useEffect(() => {
+    if (modalMode === 'create' && formData.type !== 'IN' && availableLots.length > 0) {
+      const hasValidSelection = availableLots.some(lot => lot.id.toString() === formData.lot_id.toString());
+      if (!hasValidSelection) {
+        setFormData(prev => ({
+          ...prev,
+          lot_id: availableLots[0].id.toString()
+        }));
+      }
+    }
+  }, [availableLots, modalMode, formData.type]);
 
   // Fetch lots available at a specific location
   const fetchLotsAtLocation = async (locationId, itemLots) => {
@@ -195,13 +219,24 @@ function TransactionsManagement() {
       // Get lotLocations from the direct response (not nested under location)
       const lotLocations = data.lotLocations || []
       
-      // Filter lots that are available at this location with quantity > 0
-      const lotIdsAtLocation = lotLocations
-        .filter(ll => ll.quantity > 0)
-        .map(ll => ll.lot_id)
-      
-      const filtered = itemLots.filter(lot => lotIdsAtLocation.includes(lot.id))
-      setAvailableLots(filtered)
+      // Map current location quantity and reserved quantity to each lot
+      const mappedLots = itemLots.map(lot => {
+        const match = lotLocations.find(ll => ll.lot_id === lot.id);
+        return {
+          ...lot,
+          locationQty: match ? match.quantity : 0,
+          locationReservedQty: match ? match.reserved_quantity : 0
+        };
+      });
+
+      // For TRANSFER and OUT, only display lots that have a quantity > 0 at the source location
+      if (formData.type === 'TRANSFER' || formData.type === 'OUT') {
+        const filtered = mappedLots.filter(lot => lot.locationQty > 0);
+        setAvailableLots(filtered);
+      } else {
+        // For other types (like ADJUSTMENT), show all lots, annotated with quantity
+        setAvailableLots(mappedLots);
+      }
     } catch (err) {
       console.error('Error fetching lots at location:', err)
       setAvailableLots(itemLots) // Fallback to all item lots
@@ -350,6 +385,8 @@ function TransactionsManagement() {
       lot_id: '',
       supplier_id: ''
     })
+    setItemSearchText('')
+    setShowItemDropdown(false)
     setShowModal(true)
   }
 
@@ -366,6 +403,9 @@ function TransactionsManagement() {
       lot_id: transaction.lot_id ? transaction.lot_id.toString() : '',
       supplier_id: transaction.lot?.supplier?.id ? transaction.lot.supplier.id.toString() : ''
     })
+    const item = items.find(i => i.id.toString() === transaction.item_id.toString());
+    setItemSearchText(item ? item.name : '')
+    setShowItemDropdown(false)
     setShowModal(true)
   }
 
@@ -379,6 +419,8 @@ function TransactionsManagement() {
     setShowModal(false)
     setSelectedTransaction(null)
     setAvailableLots([])
+    setItemSearchText('')
+    setShowItemDropdown(false)
     setFormData({
       item_id: '',
       from_location: '',
@@ -436,6 +478,52 @@ function TransactionsManagement() {
     })
   }
 
+  // Handle item change to reset lot selection
+  const handleItemChange = (itemId) => {
+    setFormData(prev => ({
+      ...prev,
+      item_id: itemId,
+      lot_id: ''
+    }))
+  }
+
+  // Handle source location change to reset lot selection
+  const handleFromLocationChange = (fromLocation) => {
+    setFormData(prev => ({
+      ...prev,
+      from_location: fromLocation,
+      lot_id: ''
+    }))
+  }
+
+  // Handle destination location change to reset lot selection if adjustment
+  const handleToLocationChange = (toLocation) => {
+    setFormData(prev => ({
+      ...prev,
+      to_location: toLocation,
+      lot_id: prev.type === 'ADJUSTMENT' ? '' : prev.lot_id
+    }))
+  }
+
+  // Check if form has validation errors
+  const isFormInvalid = () => {
+    if (formData.type === 'TRANSFER' && formData.from_location && formData.to_location && formData.from_location === formData.to_location) {
+      return true
+    }
+    
+    if (formData.lot_id && (formData.type === 'TRANSFER' || formData.type === 'OUT')) {
+      const selectedLot = availableLots.find(lot => lot.id.toString() === formData.lot_id.toString())
+      if (selectedLot) {
+        const availableStock = selectedLot.locationQty - (selectedLot.locationReservedQty || 0)
+        if (formData.quantity && parseInt(formData.quantity) > availableStock) {
+          return true
+        }
+      }
+    }
+    
+    return false
+  }
+
   // Load data on component mount
   useEffect(() => {
     fetchTransactions()
@@ -449,6 +537,11 @@ function TransactionsManagement() {
   useEffect(() => {
     handleFilterChange()
   }, [filterType, filterStatus])
+
+  const selectedLot = availableLots.find(lot => lot.id.toString() === formData.lot_id.toString())
+  const selectedLotAvailableQty = selectedLot 
+    ? (selectedLot.locationQty - (selectedLot.locationReservedQty || 0)) 
+    : null
 
   if (loading) {
     return (
@@ -597,6 +690,12 @@ function TransactionsManagement() {
                             <span>{transaction.toLocation?.name || '—'}</span>
                           </div>
                         </div>
+                      ) : transaction.type === 'TRANSFER' ? (
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <span className="text-gray-800">{transaction.fromLocation?.name || '—'}</span>
+                          <span className="text-blue-500">➔</span>
+                          <span className="text-gray-800">{transaction.toLocation?.name || '—'}</span>
+                        </div>
                       ) : (
                         <div>
                           {transaction.fromLocation?.name || '—'} → {transaction.toLocation?.name || '—'}
@@ -730,19 +829,69 @@ function TransactionsManagement() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Article *
                     </label>
-                    <select
-                      required
-                      value={formData.item_id}
-                      onChange={(e) => setFormData({ ...formData, item_id: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
-                    >
-                      <option value="">Sélectionner un article</option>
-                      {items.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Rechercher un article..."
+                        value={itemSearchText}
+                        onChange={(e) => {
+                          setItemSearchText(e.target.value);
+                          setShowItemDropdown(true);
+                          if (e.target.value === '') {
+                            handleItemChange('');
+                          }
+                        }}
+                        onFocus={() => setShowItemDropdown(true)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
+                        required
+                      />
+                      <div className="absolute right-3 top-2.5 pointer-events-none text-gray-400">
+                        🔍
+                      </div>
+                      
+                      {showItemDropdown && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-40" 
+                            onClick={() => {
+                              const selectedItem = items.find(i => i.id.toString() === formData.item_id.toString());
+                              setItemSearchText(selectedItem ? selectedItem.name : '');
+                              setShowItemDropdown(false);
+                            }}
+                          />
+                          <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                            {items.filter(item => 
+                              item.name.toLowerCase().includes(itemSearchText.toLowerCase())
+                            ).length === 0 ? (
+                              <div className="px-3 py-2 text-sm text-gray-500">
+                                Aucun article trouvé
+                              </div>
+                            ) : (
+                              items.filter(item => 
+                                item.name.toLowerCase().includes(itemSearchText.toLowerCase())
+                              ).map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => {
+                                    handleItemChange(item.id.toString());
+                                    setItemSearchText(item.name);
+                                    setShowItemDropdown(false);
+                                  }}
+                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 transition-colors ${
+                                    formData.item_id.toString() === item.id.toString() 
+                                      ? 'bg-blue-50 font-semibold text-[#008899]' 
+                                      : 'text-gray-700'
+                                  }`}
+                                >
+                                  {item.name}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   <div>
@@ -772,12 +921,30 @@ function TransactionsManagement() {
                     <input
                       type="number"
                       min="1"
+                      max={selectedLotAvailableQty !== null && (formData.type === 'TRANSFER' || formData.type === 'OUT') ? selectedLotAvailableQty : undefined}
                       required
                       value={formData.quantity}
                       onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
+                      className={`w-full px-3 py-2 border rounded-md focus:ring-[#00AABB] focus:border-[#00AABB] ${
+                        selectedLotAvailableQty !== null && 
+                        (formData.type === 'TRANSFER' || formData.type === 'OUT') && 
+                        parseInt(formData.quantity) > selectedLotAvailableQty
+                          ? 'border-red-500 text-red-900 focus:ring-red-500 focus:border-red-500'
+                          : 'border-gray-300'
+                      }`}
                       placeholder="Ex: 10"
                     />
+                    {selectedLotAvailableQty !== null && (formData.type === 'TRANSFER' || formData.type === 'OUT') && (
+                      <p className={`text-xs mt-1 ${
+                        parseInt(formData.quantity) > selectedLotAvailableQty 
+                          ? 'text-red-600 font-medium' 
+                          : 'text-gray-500'
+                      }`}>
+                        Disponible : {selectedLotAvailableQty} unité(s)
+                        {selectedLot.locationReservedQty > 0 && ` (dont ${selectedLot.locationReservedQty} rés.)`}
+                        {parseInt(formData.quantity) > selectedLotAvailableQty && ' - La quantité dépasse le stock disponible.'}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -805,15 +972,22 @@ function TransactionsManagement() {
                       <select
                         required={formData.type === 'TRANSFER'}
                         value={formData.from_location}
-                        onChange={(e) => setFormData({ ...formData, from_location: e.target.value })}
+                        onChange={(e) => handleFromLocationChange(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
                       >
                         <option value="">Sélectionner un emplacement</option>
-                        {locations.map((location) => (
-                          <option key={location.id} value={location.id}>
-                            {location.name} ({getLocationTypeLabel(location.type)})
-                          </option>
-                        ))}
+                        {locations.map((location) => {
+                          const isSameAsDest = formData.type === 'TRANSFER' && formData.to_location && location.id.toString() === formData.to_location.toString();
+                          return (
+                            <option 
+                              key={location.id} 
+                              value={location.id}
+                              disabled={isSameAsDest}
+                            >
+                              {location.name} ({getLocationTypeLabel(location.type)}){isSameAsDest ? ' (Destination)' : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   )}
@@ -826,15 +1000,22 @@ function TransactionsManagement() {
                       <select
                         required={formData.type === 'TRANSFER' || formData.type === 'IN'}
                         value={formData.to_location}
-                        onChange={(e) => setFormData({ ...formData, to_location: e.target.value })}
+                        onChange={(e) => handleToLocationChange(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
                       >
                         <option value="">Sélectionner un emplacement</option>
-                        {locations.map((location) => (
-                          <option key={location.id} value={location.id}>
-                            {location.name} ({getLocationTypeLabel(location.type)})
-                          </option>
-                        ))}
+                        {locations.map((location) => {
+                          const isSameAsSource = formData.type === 'TRANSFER' && formData.from_location && location.id.toString() === formData.from_location.toString();
+                          return (
+                            <option 
+                              key={location.id} 
+                              value={location.id}
+                              disabled={isSameAsSource}
+                            >
+                              {location.name} ({getLocationTypeLabel(location.type)}){isSameAsSource ? ' (Source)' : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   )}
@@ -864,8 +1045,12 @@ function TransactionsManagement() {
                   </div>
                 )}
 
-                {/* LOT Selection - For OUT/TRANSFER/ADJUSTMENT */}
+                {/* LOT Selection - For OUT/TRANSFER/ADJUSTMENT, only show when location (emplacement) is selected */}
                 {formData.type && formData.type !== 'IN' && (
+                  formData.type === 'TRANSFER' || formData.type === 'OUT' 
+                    ? !!formData.from_location 
+                    : (!!formData.from_location || !!formData.to_location)
+                ) && (
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Lot {(formData.type === 'OUT' || formData.type === 'TRANSFER') ? '*' : ''}
@@ -875,21 +1060,24 @@ function TransactionsManagement() {
                       value={formData.lot_id}
                       onChange={(e) => setFormData({ ...formData, lot_id: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
-                      disabled={!formData.item_id || (formData.type === 'TRANSFER' && !formData.from_location)}
+                      disabled={!formData.item_id}
                     >
                       <option value="">Sélectionner un lot</option>
-                      {availableLots.map((lot) => (
-                        <option key={lot.id} value={lot.id}>
-                          {lot.lot_number} - {lot.item?.name} 
-                          {lot.expiration_date && ` (Exp: ${new Date(lot.expiration_date).toLocaleDateString('fr-FR')})`}
-                        </option>
-                      ))}
+                      {availableLots.map((lot) => {
+                        const qtyText = lot.locationQty !== undefined
+                          ? ` [Qté: ${lot.locationQty}${lot.locationReservedQty > 0 ? ` (dont ${lot.locationReservedQty} rés.)` : ''}]`
+                          : '';
+                        return (
+                          <option key={lot.id} value={lot.id}>
+                            {lot.lot_number} - {lot.item?.name}{qtyText}
+                            {lot.expiration_date && ` (Exp: ${new Date(lot.expiration_date).toLocaleDateString('fr-FR')})`}
+                          </option>
+                        );
+                      })}
                     </select>
                     {availableLots.length === 0 && formData.item_id && (
                       <p className="text-xs text-gray-500 mt-1">
-                        {formData.type === 'TRANSFER' && !formData.from_location 
-                          ? 'Sélectionnez un emplacement source pour voir les lots disponibles'
-                          : 'Aucun lot actif disponible pour cet article'}
+                        Aucun lot actif disponible pour cet article dans cet emplacement
                       </p>
                     )}
                   </div>
@@ -905,7 +1093,12 @@ function TransactionsManagement() {
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 text-sm bg-[#00AABB] text-white rounded-md hover:bg-[#008899]"
+                    disabled={isFormInvalid()}
+                    className={`px-4 py-2 text-sm text-white rounded-md transition-colors ${
+                      isFormInvalid()
+                        ? 'bg-gray-300 cursor-not-allowed'
+                        : 'bg-[#00AABB] hover:bg-[#008899]'
+                    }`}
                   >
                     {modalMode === 'create' ? 'Créer' : 'Modifier'}
                   </button>
@@ -987,18 +1180,45 @@ function TransactionsManagement() {
                   <p className="text-gray-900 font-medium">{selectedTransaction.quantity}</p>
                 </div>
 
-                {selectedTransaction.fromLocation && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500">Emplacement source</label>
-                    <p className="text-gray-900">{selectedTransaction.fromLocation.name}</p>
+                {selectedTransaction.type === 'TRANSFER' ? (
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 my-2">
+                    <div className="flex items-center justify-between text-center">
+                      <div className="flex-1">
+                        <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider block mb-1">Source</span>
+                        <span className="text-base font-semibold text-gray-900">{selectedTransaction.fromLocation?.name || '—'}</span>
+                        <span className="text-xs text-gray-500 block">({getLocationTypeLabel(selectedTransaction.fromLocation?.type)})</span>
+                      </div>
+                      <div className="flex items-center justify-center px-4">
+                        <div className="flex flex-col items-center">
+                          <span className="text-xs font-medium text-blue-500 mb-1">Transfert</span>
+                          <svg className="w-8 h-8 text-blue-500 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                          </svg>
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <span className="text-xs font-semibold text-green-600 uppercase tracking-wider block mb-1">Destination</span>
+                        <span className="text-base font-semibold text-gray-900">{selectedTransaction.toLocation?.name || '—'}</span>
+                        <span className="text-xs text-gray-500 block">({getLocationTypeLabel(selectedTransaction.toLocation?.type)})</span>
+                      </div>
+                    </div>
                   </div>
-                )}
+                ) : (
+                  <>
+                    {selectedTransaction.fromLocation && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500">Emplacement source</label>
+                        <p className="text-gray-900">{selectedTransaction.fromLocation.name}</p>
+                      </div>
+                    )}
 
-                {selectedTransaction.toLocation && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500">Emplacement destination</label>
-                    <p className="text-gray-900">{selectedTransaction.toLocation.name}</p>
-                  </div>
+                    {selectedTransaction.toLocation && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500">Emplacement destination</label>
+                        <p className="text-gray-900">{selectedTransaction.toLocation.name}</p>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <div>
