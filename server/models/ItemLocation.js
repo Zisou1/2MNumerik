@@ -1,18 +1,18 @@
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  const LotLocation = sequelize.define('LotLocation', {
+  const ItemLocation = sequelize.define('ItemLocation', {
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
       allowNull: false
     },
-    lot_id: {
+    item_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'lots',
+        model: 'items',
         key: 'id'
       }
     },
@@ -24,7 +24,7 @@ module.exports = (sequelize) => {
         key: 'id'
       }
     },
-    quantity: {
+    minimum_quantity: {
       type: DataTypes.DECIMAL(12, 4),
       allowNull: false,
       defaultValue: 0,
@@ -32,51 +32,38 @@ module.exports = (sequelize) => {
         min: 0
       },
       get() {
-        const rawValue = this.getDataValue('quantity');
-        return rawValue !== null && rawValue !== undefined ? parseFloat(rawValue) : rawValue;
-      }
-    },
-
-    reserved_quantity: {
-      type: DataTypes.DECIMAL(12, 4),
-      allowNull: false,
-      defaultValue: 0,
-      validate: {
-        min: 0
-      },
-      get() {
-        const rawValue = this.getDataValue('reserved_quantity');
+        const rawValue = this.getDataValue('minimum_quantity');
         return rawValue !== null && rawValue !== undefined ? parseFloat(rawValue) : rawValue;
       }
     }
   }, {
-    tableName: 'lot_locations',
+    tableName: 'item_locations',
     timestamps: true,
-    createdAt: false,
+    createdAt: 'created_at',
     updatedAt: 'updated_at',
     indexes: [
       {
         unique: true,
-        fields: ['lot_id', 'location_id'],
-        name: 'unique_lot_location'
+        fields: ['item_id', 'location_id'],
+        name: 'unique_item_location'
       }
     ]
   });
 
   // Define associations
-  LotLocation.associate = function(models) {
-    // LotLocation belongs to Lot
-    LotLocation.belongsTo(models.Lot, {
-      foreignKey: 'lot_id',
-      as: 'lot'
+  ItemLocation.associate = function(models) {
+    // ItemLocation belongs to Item
+    ItemLocation.belongsTo(models.Item, {
+      foreignKey: 'item_id',
+      as: 'item'
     });
     
-    // LotLocation belongs to Location
-    LotLocation.belongsTo(models.Location, {
+    // ItemLocation belongs to Location
+    ItemLocation.belongsTo(models.Location, {
       foreignKey: 'location_id',
       as: 'location'
     });
   };
 
-  return LotLocation;
+  return ItemLocation;
 };

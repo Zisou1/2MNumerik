@@ -361,8 +361,8 @@ const createTransaction = async (req, res) => {
           return res.status(400).json({ error: 'LOT not found at source location' });
         }
 
-        const availableStockTransfer = sourceLotLocation.quantity - sourceLotLocation.reserved_quantity;
-        if (availableStockTransfer < quantity) {
+        const availableStockTransfer = parseFloat(sourceLotLocation.quantity) - parseFloat(sourceLotLocation.reserved_quantity);
+        if (availableStockTransfer < parseFloat(quantity)) {
           await t.rollback();
           return res.status(400).json({ 
             type: 'INSUFFICIENT_STOCK',
@@ -372,7 +372,7 @@ const createTransaction = async (req, res) => {
 
         if (!shouldProcessInventory) {
           await sourceLotLocation.update({
-            reserved_quantity: sourceLotLocation.reserved_quantity + quantity
+            reserved_quantity: parseFloat(sourceLotLocation.reserved_quantity) + parseFloat(quantity)
           }, { transaction: t });
         }
 
@@ -399,7 +399,7 @@ const createTransaction = async (req, res) => {
         return res.status(400).json({ error: 'Invalid transaction type' });
     }
 
-    // For IN transactions, create lot immediately (even for draft status)
+    // For IN transactions, create lot immediately to store supplier_id and lot details
     if (type === 'IN' && !finalLotId) {
       const lot_number = use_custom_lot_number 
         ? await generateCustomLotNumber(item.name)
@@ -412,7 +412,7 @@ const createTransaction = async (req, res) => {
         manufacturing_date: manufacturing_date || null,
         expiration_date: expiration_date || null,
         received_date: new Date(),
-        initial_quantity: quantity,
+        initial_quantity: parseFloat(quantity),
         status: 'active',
         notes: lot_notes || null
       }, { transaction: t });
@@ -565,20 +565,7 @@ const updateTransaction = async (req, res) => {
         }
 
         if (!finalLotId) {
-          const lot_number = await generateLotNumber(item_id);
-          const newLot = await Lot.create({
-            lot_number,
-            item_id,
-            supplier_id: null,
-            manufacturing_date: null,
-            expiration_date: null,
-            received_date: new Date(),
-            initial_quantity: quantity,
-            status: 'active',
-            notes: null
-          }, { transaction: t });
-
-          finalLotId = newLot.id;
+          // Draft IN transaction has no lot_id yet — keep finalLotId = null
         } else {
           const existingLot = await Lot.findByPk(finalLotId, { transaction: t });
           if (!existingLot) {
@@ -797,14 +784,13 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
 
       if (existingLotLocation) {
         await existingLotLocation.update({
-          quantity: existingLotLocation.quantity + transaction.quantity
+          quantity: parseFloat(existingLotLocation.quantity) + parseFloat(transaction.quantity)
         }, { transaction: dbTransaction });
       } else {
         await LotLocation.create({
           lot_id: lotId,
           location_id: transaction.to_location,
-          quantity: transaction.quantity,
-          minimum_quantity: 0
+          quantity: parseFloat(transaction.quantity)
         }, { transaction: dbTransaction });
       }
       break;
@@ -819,11 +805,11 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
 
       if (lotLocationOut) {
         await lotLocationOut.update({
-          quantity: lotLocationOut.quantity - transaction.quantity
+          quantity: Math.max(0, parseFloat(lotLocationOut.quantity) - parseFloat(transaction.quantity))
         }, { transaction: dbTransaction });
 
         // Update LOT status if depleted everywhere
-        if (lotLocationOut.quantity - transaction.quantity === 0) {
+        if (parseFloat(lotLocationOut.quantity) - parseFloat(transaction.quantity) <= 0) {
           const otherLocations = await LotLocation.findAll({
             where: { 
               lot_id: lotId,
@@ -832,7 +818,7 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
             transaction: dbTransaction
           });
 
-          const totalRemaining = otherLocations.reduce((sum, ll) => sum + ll.quantity, 0);
+          const totalRemaining = otherLocations.reduce((sum, ll) => sum + parseFloat(ll.quantity), 0);
           
           if (totalRemaining === 0) {
             const lot = await Lot.findByPk(lotId, { transaction: dbTransaction });
@@ -854,7 +840,7 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
 
       if (sourceLotLocation) {
         await sourceLotLocation.update({
-          quantity: sourceLotLocation.quantity - transaction.quantity
+          quantity: Math.max(0, parseFloat(sourceLotLocation.quantity) - parseFloat(transaction.quantity))
         }, { transaction: dbTransaction });
       }
 
@@ -867,14 +853,13 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
 
       if (destLotLocation) {
         await destLotLocation.update({
-          quantity: destLotLocation.quantity + transaction.quantity
+          quantity: parseFloat(destLotLocation.quantity) + parseFloat(transaction.quantity)
         }, { transaction: dbTransaction });
       } else {
         await LotLocation.create({
           lot_id: lotId,
           location_id: transaction.to_location,
-          quantity: transaction.quantity,
-          minimum_quantity: 0
+          quantity: parseFloat(transaction.quantity)
         }, { transaction: dbTransaction });
       }
       break;
@@ -892,8 +877,7 @@ const processInventoryChanges = async (transaction, lotId, dbTransaction, lotDat
         await LotLocation.create({
           lot_id: lotId,
           location_id: adjustmentLocation,
-          quantity: transaction.quantity,
-          minimum_quantity: 0
+          quantity: transaction.quantity
         }, { transaction: dbTransaction });
       } else {
         await lotLocationAdj.update({
@@ -910,14 +894,21 @@ const validateTransaction = async (req, res) => {
   
   try {
     const { id } = req.params;
-    const { validated_by } = req.body;
+    const {
+      validated_by,
+      supplier_id,
+      manufacturing_date,
+      expiration_date,
+      use_custom_lot_number = false,
+      lot_notes
+    } = req.body;
 
     if (!validated_by) {
       await t.rollback();
       return res.status(400).json({ error: 'Validator name is required' });
     }
 
-    const transaction = await Transaction.findByPk(id);
+    const transaction = await Transaction.findByPk(id, { transaction: t });
     if (!transaction) {
       await t.rollback();
       return res.status(404).json({ error: 'Transaction not found' });
@@ -933,29 +924,29 @@ const validateTransaction = async (req, res) => {
       return res.status(400).json({ error: 'Cannot validate a cancelled transaction' });
     }
 
-    // For IN transactions without existing lot_id, create the lot now (this should rarely happen)
+    // For IN transactions without existing lot_id, create the lot now upon validation
     let finalLotId = transaction.lot_id;
     
     if (transaction.type === 'IN' && !transaction.lot_id) {
-      const item = await Item.findByPk(transaction.item_id);
-      const lot_number = await generateLotNumber(transaction.item_id);
+      const item = await Item.findByPk(transaction.item_id, { transaction: t });
+      const lot_number = use_custom_lot_number 
+        ? await generateCustomLotNumber(item.name)
+        : await generateLotNumber(transaction.item_id);
 
-      // During validation, we don't have the original lot data, so create with minimal info
       const newLot = await Lot.create({
         lot_number,
         item_id: transaction.item_id,
-        supplier_id: null, // No supplier info available during validation
-        manufacturing_date: null,
-        expiration_date: null,
+        supplier_id: supplier_id || null,
+        manufacturing_date: manufacturing_date || null,
+        expiration_date: expiration_date || null,
         received_date: new Date(),
         initial_quantity: transaction.quantity,
         status: 'active',
-        notes: null
+        notes: lot_notes || null
       }, { transaction: t });
 
       finalLotId = newLot.id;
       
-      // Update transaction with new lot_id
       await transaction.update({
         lot_id: finalLotId
       }, { transaction: t });
@@ -980,11 +971,11 @@ const validateTransaction = async (req, res) => {
       // If it was draft, it held a reservation. Release it now.
       if (transaction.status === 'draft') {
         await lotLocation.update({
-          reserved_quantity: Math.max(0, lotLocation.reserved_quantity - transaction.quantity)
+          reserved_quantity: Math.max(0, parseFloat(lotLocation.reserved_quantity) - parseFloat(transaction.quantity))
         }, { transaction: t });
       }
 
-      if (lotLocation.quantity < transaction.quantity) {
+      if (parseFloat(lotLocation.quantity) < parseFloat(transaction.quantity)) {
         await t.rollback();
         return res.status(400).json({ 
           type: 'INSUFFICIENT_STOCK',
@@ -1104,13 +1095,15 @@ const cancelTransaction = async (req, res) => {
       if (otherTransactions === 0 && totalQuantity === 0) {
         // Delete lot locations first
         await LotLocation.destroy({
-          where: { lot_id: transaction.lot_id }
-        }, { transaction: t });
+          where: { lot_id: transaction.lot_id },
+          transaction: t
+        });
 
         // Delete the lot
         await Lot.destroy({
-          where: { id: transaction.lot_id }
-        }, { transaction: t });
+          where: { id: transaction.lot_id },
+          transaction: t
+        });
       }
     }
 
@@ -1183,50 +1176,54 @@ const deleteTransaction = async (req, res) => {
 
       if (lotLocation) {
         await lotLocation.update({
-          reserved_quantity: Math.max(0, lotLocation.reserved_quantity - transaction.quantity)
+          reserved_quantity: Math.max(0, parseFloat(lotLocation.reserved_quantity) - parseFloat(transaction.quantity))
         }, { transaction: t });
       }
     }
 
-    // Clean up any unused lots for IN transactions
-    if (transaction.type === 'IN' && transaction.lot_id) {
+    const targetLotId = transaction.lot_id;
+    const isTypeIn = transaction.type === 'IN';
+
+    // Delete transaction record FIRST to clear foreign key constraint
+    await transaction.destroy({ transaction: t });
+
+    // Clean up any unused lots for IN transactions AFTER deleting transaction
+    if (isTypeIn && targetLotId) {
       const [otherTransactions, lotLocations] = await Promise.all([
         Transaction.count({
           where: {
-            lot_id: transaction.lot_id,
-            id: { [Op.ne]: transaction.id },
+            lot_id: targetLotId,
             status: { [Op.ne]: 'cancelled' }
           },
           transaction: t
         }),
         LotLocation.findAll({
-          where: { lot_id: transaction.lot_id },
+          where: { lot_id: targetLotId },
           transaction: t
         })
       ]);
 
-      const totalQuantity = lotLocations.reduce((sum, ll) => sum + ll.quantity, 0);
+      const totalQuantity = lotLocations.reduce((sum, ll) => sum + parseFloat(ll.quantity), 0);
 
       if (otherTransactions === 0 && totalQuantity === 0) {
         await LotLocation.destroy({
-          where: { lot_id: transaction.lot_id },
+          where: { lot_id: targetLotId },
           transaction: t
         });
 
         await Lot.destroy({
-          where: { id: transaction.lot_id },
+          where: { id: targetLotId },
           transaction: t
         });
       }
     }
 
-    await transaction.destroy({ transaction: t });
     await t.commit();
     res.json({ message: 'Transaction deleted successfully' });
   } catch (error) {
     await t.rollback();
     console.error('Error deleting transaction:', error);
-    res.status(500).json({ error: 'Failed to delete transaction' });
+    res.status(500).json({ error: 'Failed to delete transaction', details: error.message });
   }
 };
 
@@ -1290,10 +1287,188 @@ const getAvailableLots = async (req, res) => {
   }
 };
 
+// Helper to generate unique batch transfer reference number (e.g. TR-20260727-001)
+const generateBatchReferenceNumber = async () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  const datePrefix = `TR-${year}${month}${day}`;
+
+  const count = await Transaction.count({
+    where: {
+      reference_group: {
+        [Op.like]: `${datePrefix}-%`
+      }
+    }
+  });
+
+  const seq = String(count + 1).padStart(3, '0');
+  return `${datePrefix}-${seq}`;
+};
+
+// Create multi-item batch transfer transactions
+const createBatchTransaction = async (req, res) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const {
+      type = 'TRANSFER',
+      from_location,
+      to_location,
+      items, // Array of { item_id, lot_id, quantity, supplier_id, manufacturing_date, expiration_date, lot_notes }
+      status = 'draft',
+      auto_validate = false,
+      created_by
+    } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'At least one item line is required for batch transaction' });
+    }
+
+    if (!created_by) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Created by user is required' });
+    }
+
+    if (type === 'TRANSFER' && (!from_location || !to_location)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Source and destination locations are required for transfers' });
+    }
+
+    if (type === 'TRANSFER' && from_location === to_location) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Source and destination locations must be different' });
+    }
+
+    const reference_group = await generateBatchReferenceNumber();
+    const shouldProcessInventory = auto_validate || status === 'validated';
+
+    for (const itemLine of items) {
+      const { item_id, lot_id, quantity, supplier_id, manufacturing_date, expiration_date, lot_notes, use_custom_lot_number } = itemLine;
+
+      if (!item_id || !quantity || parseFloat(quantity) <= 0) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Each item line must have a valid item_id and quantity > 0' });
+      }
+
+      const item = await Item.findByPk(item_id, { transaction: t });
+      if (!item) {
+        await t.rollback();
+        return res.status(404).json({ error: `Item with ID ${item_id} not found` });
+      }
+
+      let finalLotId = lot_id || null;
+
+      // Handle stock reservation checks for OUT and TRANSFER
+      if (type === 'OUT' || type === 'TRANSFER') {
+        if (!finalLotId) {
+          await t.rollback();
+          return res.status(400).json({ error: `Lot selection is required for ${type} transaction on item ${item.name}` });
+        }
+
+        const lotLocation = await LotLocation.findOne({
+          where: { lot_id: finalLotId, location_id: from_location },
+          transaction: t,
+          lock: t.LOCK.UPDATE
+        });
+
+        if (!lotLocation) {
+          await t.rollback();
+          return res.status(400).json({ error: `Lot is not available at source location for item ${item.name}` });
+        }
+
+        const availableStock = lotLocation.quantity - lotLocation.reserved_quantity;
+        if (availableStock < parseFloat(quantity)) {
+          await t.rollback();
+          return res.status(400).json({ 
+            error: `INSUFFICIENT_STOCK: Stock insuffisant pour ${item.name}. Disponible: ${availableStock}, Demandé: ${quantity}` 
+          });
+        }
+
+        if (!shouldProcessInventory) {
+          await lotLocation.update({
+            reserved_quantity: lotLocation.reserved_quantity + parseFloat(quantity)
+          }, { transaction: t });
+        }
+      }
+
+      // Handle IN transactions lot creation if auto_validate / validated
+      if (type === 'IN' && !finalLotId && shouldProcessInventory) {
+        const lot_number = use_custom_lot_number 
+          ? await generateCustomLotNumber(item.name)
+          : await generateLotNumber(item_id);
+
+        const newLot = await Lot.create({
+          lot_number,
+          item_id,
+          supplier_id: supplier_id || null,
+          manufacturing_date: manufacturing_date || null,
+          expiration_date: expiration_date || null,
+          received_date: new Date(),
+          initial_quantity: parseFloat(quantity),
+          status: 'active',
+          notes: lot_notes || null
+        }, { transaction: t });
+
+        finalLotId = newLot.id;
+      }
+
+      const tx = await Transaction.create({
+        item_id,
+        lot_id: finalLotId,
+        from_location: from_location || null,
+        to_location: to_location || null,
+        quantity: parseFloat(quantity),
+        type,
+        status: auto_validate ? 'validated' : status,
+        created_by,
+        validated_by: auto_validate ? created_by : null,
+        validated_at: auto_validate ? new Date() : null,
+        reference_group
+      }, { transaction: t });
+
+      if (shouldProcessInventory) {
+        await processInventoryChanges(tx, finalLotId, t, {
+          supplier_id,
+          manufacturing_date,
+          expiration_date,
+          lot_notes
+        });
+      }
+    }
+
+    await t.commit();
+
+    // Fetch created batch with full details
+    const batchResult = await Transaction.findAll({
+      where: { reference_group },
+      include: [
+        { model: Item, as: 'item' },
+        { model: Lot, as: 'lot' },
+        { model: Location, as: 'fromLocation' },
+        { model: Location, as: 'toLocation' }
+      ]
+    });
+
+    res.status(201).json({
+      reference_group,
+      count: batchResult.length,
+      transactions: batchResult
+    });
+  } catch (error) {
+    await t.rollback();
+    console.error('Error creating batch transaction:', error);
+    res.status(500).json({ error: 'Failed to create batch transaction', details: error.message });
+  }
+};
+
 module.exports = {
   getAllTransactions,
   getTransactionById,
   createTransaction,
+  createBatchTransaction,
   updateTransaction,
   validateTransaction,
   cancelTransaction,

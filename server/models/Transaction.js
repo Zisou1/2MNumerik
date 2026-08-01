@@ -41,10 +41,14 @@ module.exports = (sequelize) => {
       }
     },
     quantity: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(12, 4),
       allowNull: false,
       validate: {
-        min: 1
+        min: 0.0001
+      },
+      get() {
+        const rawValue = this.getDataValue('quantity');
+        return rawValue !== null && rawValue !== undefined ? parseFloat(rawValue) : rawValue;
       }
     },
     type: {
@@ -66,6 +70,10 @@ module.exports = (sequelize) => {
     },
     validated_at: {
       type: DataTypes.DATE,
+      allowNull: true
+    },
+    reference_group: {
+      type: DataTypes.STRING(100),
       allowNull: true
     }
   }, {

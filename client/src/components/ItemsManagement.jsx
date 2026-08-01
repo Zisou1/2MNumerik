@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import AlertDialog from './AlertDialog'
-import { stockAPI } from '../utils/api'
+import { stockAPI, unitAPI } from '../utils/api'
 
 function ItemsManagement() {
   const [items, setItems] = useState([])
@@ -12,12 +12,25 @@ function ItemsManagement() {
   const [modalMode, setModalMode] = useState('create') // 'create' or 'edit'
   const [selectedItem, setSelectedItem] = useState(null)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [deleteErrorDialog, setDeleteErrorDialog] = useState(null)
+  
+  // Dynamic DB Units state
+  const [dbUnits, setDbUnits] = useState([])
+  const [showAddUnitModal, setShowAddUnitModal] = useState(false)
+  const [newUnitData, setNewUnitData] = useState({ name: '', symbol: '', description: '' })
+  const [unitError, setUnitError] = useState(null)
 
   // Item details modal states
   const [showItemDetailsModal, setShowItemDetailsModal] = useState(false)
   const [selectedItemDetails, setSelectedItemDetails] = useState(null)
   const [itemDetailsLoading, setItemDetailsLoading] = useState(false)
   const [itemTransactions, setItemTransactions] = useState([])
+
+  // Thresholds modal state
+  const [showThresholdsModal, setShowThresholdsModal] = useState(false)
+  const [thresholdsLoading, setThresholdsLoading] = useState(false)
+  const [thresholdsData, setThresholdsData] = useState([])
+  const [selectedItemForThresholds, setSelectedItemForThresholds] = useState(null)
 
   // Pagination and search states
   const [currentPage, setCurrentPage] = useState(1)
@@ -31,7 +44,8 @@ function ItemsManagement() {
   // Form state
   const [formData, setFormData] = useState({
     name: '',
-    description: ''
+    description: '',
+    unit: 'unite'
   })
   
   // Helper function to get location type label
@@ -147,6 +161,31 @@ function ItemsManagement() {
     }
   }
 
+  // Fetch DB units from API
+  const fetchDbUnits = async () => {
+    try {
+      const data = await unitAPI.getUnits()
+      setDbUnits(data || [])
+    } catch (err) {
+      console.error('Error fetching DB units:', err)
+    }
+  }
+
+  // Handle inline unit creation
+  const handleCreateNewUnit = async (e) => {
+    e.preventDefault()
+    try {
+      setUnitError(null)
+      const created = await unitAPI.createUnit(newUnitData)
+      await fetchDbUnits()
+      setFormData({ ...formData, unit: created.symbol, unit_id: created.id })
+      setShowAddUnitModal(false)
+      setNewUnitData({ name: '', symbol: '', description: '' })
+    } catch (err) {
+      setUnitError(err.message)
+    }
+  }
+
   // Get LOT summary for an item
   const getLotSummary = (itemId) => {
     const itemLots = lots.filter(lot => lot.item_id === itemId && lot.status === 'active')
@@ -157,6 +196,58 @@ function ItemsManagement() {
     return {
       count: itemLots.length,
       totalQuantity
+    }
+  }
+
+  // Thresholds Modal Handlers
+  const openThresholdsModal = async (item) => {
+    setSelectedItemForThresholds(item)
+    setShowThresholdsModal(true)
+    setThresholdsLoading(true)
+    try {
+      // 1. Fetch item details to get its configured itemLocations
+      const itemData = await stockAPI.getItem(item.id)
+      
+      // 2. We already have 'locations' from fetchLocations (global state). 
+      // Map over all locations and set the threshold input to the configured value or 0.
+      const configuredMap = new Map()
+      if (itemData.itemLocations) {
+        itemData.itemLocations.forEach(il => {
+          configuredMap.set(il.location_id, il.minimum_quantity)
+        })
+      }
+      
+      const mappedThresholds = locations.map(loc => ({
+        location_id: loc.id,
+        location_name: loc.name,
+        minimum_quantity: configuredMap.has(loc.id) ? configuredMap.get(loc.id) : 0
+      }))
+      
+      setThresholdsData(mappedThresholds)
+    } catch (err) {
+      console.error('Error opening thresholds modal:', err)
+      alert("Erreur lors de l'ouverture des seuils.")
+    } finally {
+      setThresholdsLoading(false)
+    }
+  }
+
+  const handleSaveThresholds = async () => {
+    try {
+      setThresholdsLoading(true)
+      // Save each threshold
+      for (const t of thresholdsData) {
+        const qty = parseFloat(t.minimum_quantity) || 0
+        await stockAPI.updateMinimumQuantity(selectedItemForThresholds.id, t.location_id, qty)
+      }
+      setShowThresholdsModal(false)
+      // Re-fetch items to get latest UI updates if needed
+      fetchItems()
+    } catch (err) {
+      console.error('Error saving thresholds:', err)
+      alert("Erreur lors de l'enregistrement des seuils.")
+    } finally {
+      setThresholdsLoading(false)
     }
   }
 
@@ -269,9 +360,14 @@ function ItemsManagement() {
       await stockAPI.deleteItem(deleteConfirm.id)
       await fetchItems()
       setDeleteConfirm(null)
+      setError(null)
     } catch (err) {
-      setError(err.message)
       setDeleteConfirm(null)
+      setDeleteErrorDialog({
+        title: 'Suppression Impossible',
+        message: err.message
+      })
+      setError(err.message)
     }
   }
 
@@ -279,7 +375,13 @@ function ItemsManagement() {
   const openCreateModal = () => {
     setModalMode('create')
     setSelectedItem(null)
-    setFormData({ name: '', description: '' })
+    const defaultUnit = dbUnits.find(u => u.symbol === 'unite') || dbUnits[0]
+    setFormData({
+      name: '',
+      description: '',
+      unit: defaultUnit ? defaultUnit.symbol : 'unite',
+      unit_id: defaultUnit ? defaultUnit.id : null
+    })
     setShowModal(true)
   }
 
@@ -288,7 +390,9 @@ function ItemsManagement() {
     setSelectedItem(item)
     setFormData({
       name: item.name,
-      description: item.description || ''
+      description: item.description || '',
+      unit: item.unit || 'unite',
+      unit_id: item.unit_id || (item.unitInfo?.id || null)
     })
     setShowModal(true)
   }
@@ -297,7 +401,11 @@ function ItemsManagement() {
     setShowModal(false)
     setModalMode('create')
     setSelectedItem(null)
-    setFormData({ name: '', description: '' })
+    setFormData({
+      name: '',
+      description: '',
+      unit: 'unite'
+    })
   }
 
   // Pagination handlers
@@ -335,6 +443,7 @@ function ItemsManagement() {
     fetchItems()
     fetchLocations()
     fetchLots()
+    fetchDbUnits()
   }, []) // Empty dependency array for initial load
 
   if (loading) {
@@ -484,6 +593,13 @@ function ItemsManagement() {
                         Détails
                       </button>
                       <button
+                        onClick={() => openThresholdsModal(item)}
+                        className="text-purple-600 hover:text-purple-900 mr-3"
+                        title="Gérer les seuils d'alerte"
+                      >
+                        Seuils
+                      </button>
+                      <button
                         onClick={() => openEditModal(item)}
                         className="text-[#00AABB] hover:text-[#008899] mr-3"
                       >
@@ -586,17 +702,56 @@ function ItemsManagement() {
                   />
                 </div>
 
-                <div className="mb-6">
+                <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Description
                   </label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
+                    rows={2}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
                     placeholder="Description détaillée de l'article..."
                   />
+                </div>
+
+                {/* Dynamic DB Unit of Measure Section */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Unité de Mesure (Unit) *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddUnitModal(true)}
+                      className="text-xs text-[#00AABB] font-semibold hover:underline flex items-center"
+                    >
+                      ➕ Créer une nouvelle unité
+                    </button>
+                  </div>
+                  <select
+                    value={formData.unit_id || ''}
+                    onChange={(e) => {
+                      const selectedId = e.target.value ? parseInt(e.target.value, 10) : null
+                      const selectedUnitObj = dbUnits.find(u => u.id === selectedId)
+                      setFormData({
+                        ...formData,
+                        unit_id: selectedId,
+                        unit: selectedUnitObj ? selectedUnitObj.symbol : formData.unit
+                      })
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB] bg-white"
+                  >
+                    <option value="">Choisir une unité</option>
+                    {dbUnits.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.symbol})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Sélectionnez l'unité officielle définie en base de données pour éliminer les erreurs.
+                  </p>
                 </div>
 
                 {/* Note: Stock is now managed through LOT system via IN transactions */}
@@ -625,6 +780,84 @@ function ItemsManagement() {
         </div>
       )}
 
+      {/* Add Unit Modal */}
+      {showAddUnitModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Créer une nouvelle Unité de Mesure</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Ajoutez une nouvelle unité officielle en base de données. Elle apparaîtra immédiatement dans la liste.
+            </p>
+
+            {unitError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded mb-4">
+                {unitError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateNewUnit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Nom de l'unité *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Bobine, Cartouche, Flacon..."
+                  value={newUnitData.name}
+                  onChange={(e) => {
+                    const name = e.target.value
+                    const symbol = name.toLowerCase().replace(/[^a-z0-9]/g, '_')
+                    setNewUnitData({ ...newUnitData, name, symbol })
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Symbole / Code *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: bobine, cartouche..."
+                  value={newUnitData.symbol}
+                  onChange={(e) => setNewUnitData({ ...newUnitData, symbol: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm font-mono bg-gray-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Description (optionnelle)</label>
+                <textarea
+                  rows={2}
+                  placeholder="Notes sur l'utilisation de cette unité..."
+                  value={newUnitData.description}
+                  onChange={(e) => setNewUnitData({ ...newUnitData, description: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddUnitModal(false)
+                    setUnitError(null)
+                  }}
+                  className="px-4 py-2 text-sm border rounded-lg text-gray-600 hover:bg-gray-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm bg-[#00AABB] text-white rounded-lg hover:bg-[#008899] font-semibold"
+                >
+                  Enregistrer l'unité
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Item Details Modal */}
       {showItemDetailsModal && (
         <ItemDetailsModal
@@ -640,6 +873,94 @@ function ItemsManagement() {
         />
       )}
 
+      {/* Thresholds Modal */}
+      {showThresholdsModal && selectedItemForThresholds && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fade-in-up flex flex-col max-h-[90vh]">
+            <div className="bg-gradient-to-r from-purple-600 to-purple-800 px-6 py-4 flex justify-between items-center shrink-0">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <svg className="w-5 h-5 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                Seuils d'alerte : {selectedItemForThresholds.name}
+              </h3>
+              <button 
+                onClick={() => setShowThresholdsModal(false)}
+                className="text-white/80 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1">
+              <p className="text-sm text-gray-600 mb-6">
+                Définissez la quantité minimum requise pour cet article dans chaque emplacement. Vous recevrez une alerte de stock faible lorsque la quantité disponible sera inférieure ou égale au seuil.
+              </p>
+
+              {thresholdsLoading && thresholdsData.length === 0 ? (
+                <div className="flex justify-center items-center py-8">
+                  <svg className="animate-spin h-8 w-8 text-purple-600" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {thresholdsData.map((t, index) => (
+                    <div key={t.location_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                      <span className="font-medium text-gray-700">{t.location_name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Min:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          className="w-24 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 font-medium text-right focus:ring-2 focus:ring-purple-600/30 focus:border-purple-600 transition-all"
+                          value={t.minimum_quantity}
+                          onChange={(e) => {
+                            const newData = [...thresholdsData]
+                            newData[index].minimum_quantity = e.target.value
+                            setThresholdsData(newData)
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-end gap-3 shrink-0">
+              <button
+                onClick={() => setShowThresholdsModal(false)}
+                className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSaveThresholds}
+                disabled={thresholdsLoading}
+                className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium shadow-sm shadow-purple-600/20 transition-colors disabled:opacity-50 flex items-center"
+              >
+                {thresholdsLoading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Enregistrement...
+                  </>
+                ) : (
+                  'Enregistrer'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <AlertDialog
@@ -650,6 +971,19 @@ function ItemsManagement() {
           message={`Êtes-vous sûr de vouloir supprimer l'article "${deleteConfirm.name}" ? Cette action est irréversible.`}
           confirmText="Supprimer"
           cancelText="Annuler"
+        />
+      )}
+
+      {/* Delete Error Modal */}
+      {deleteErrorDialog && (
+        <AlertDialog
+          isOpen={true}
+          onClose={() => setDeleteErrorDialog(null)}
+          onConfirm={() => setDeleteErrorDialog(null)}
+          title={deleteErrorDialog.title}
+          message={deleteErrorDialog.message}
+          confirmText="J'ai compris"
+          showCancel={false}
         />
       )}
     </div>

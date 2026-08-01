@@ -6,18 +6,23 @@ const {
   createItem,
   updateItem,
   deleteItem,
-  getStockMatrix
+  getStockMatrix,
+  updateMinimumQuantity,
+  getStockAlerts
 } = require('../controllers/itemController');
 const { authenticateToken } = require('../middleware/auth');
 
-// Public routes
+// Protect all item routes with authentication
+router.use(authenticateToken);
+
 router.get('/', getAllItems);
-router.get('/stock-matrix', authenticateToken, getStockMatrix);
+router.get('/stock-matrix', getStockMatrix);
+router.get('/alerts', getStockAlerts);
 router.get('/:id', getItemById);
 
-// Protected routes (require authentication)
-router.post('/', authenticateToken, createItem);
-router.put('/:id', authenticateToken, updateItem);
-router.delete('/:id', authenticateToken, deleteItem);
+router.post('/', createItem);
+router.put('/:id', updateItem);
+router.delete('/:id', deleteItem);
+router.put('/:id/locations/:locationId/minimum-quantity', updateMinimumQuantity);
 
 module.exports = router;

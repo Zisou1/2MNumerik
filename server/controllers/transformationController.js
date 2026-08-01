@@ -115,6 +115,8 @@ const createTransformation = async (req, res) => {
       output_quantity,
       to_location_id,
       subcontractor_location_id,
+      waste_quantity = 0,
+      waste_reason = null,
       created_by
     } = req.body;
 
@@ -129,6 +131,12 @@ const createTransformation = async (req, res) => {
       return res.status(400).json({ error: 'Input and output quantities must be greater than 0' });
     }
 
+    const parsedWasteQuantity = parseFloat(waste_quantity) || 0;
+    if (parsedWasteQuantity < 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Waste quantity cannot be negative' });
+    }
+
     if (!created_by) {
       await t.rollback();
       return res.status(400).json({ error: 'Created by user is required' });
@@ -137,6 +145,31 @@ const createTransformation = async (req, res) => {
     if (type === 'subcontracted' && !subcontractor_location_id) {
       await t.rollback();
       return res.status(400).json({ error: 'Subcontractor location is required for subcontracted transformations' });
+    }
+
+    // Fetch input and output items for mass balance validation
+    const [inputItem, outputItem] = await Promise.all([
+      Item.findByPk(input_item_id, { transaction: t }),
+      Item.findByPk(output_item_id, { transaction: t })
+    ]);
+
+    if (!inputItem || !outputItem) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Input or output article not found' });
+    }
+
+    const parsedInputQty = parseFloat(input_quantity);
+    const parsedOutputQty = parseFloat(output_quantity);
+
+    // Mass balance check: If input and output items share the same unit of measure,
+    // input_quantity MUST be >= output_quantity + waste_quantity
+    if (inputItem.unit && outputItem.unit && inputItem.unit === outputItem.unit) {
+      if (parsedInputQty < (parsedOutputQty + parsedWasteQuantity)) {
+        await t.rollback();
+        return res.status(400).json({ 
+          error: `Bilan de matière invalide: La quantité en entrée (${parsedInputQty} ${inputItem.unit}) ne peut pas être inférieure à la somme de la quantité produite (${parsedOutputQty}) et gâchée (${parsedWasteQuantity}).` 
+        });
+      }
     }
 
     // Check available stock of input lot at the source location
@@ -181,6 +214,8 @@ const createTransformation = async (req, res) => {
       output_quantity,
       to_location_id,
       subcontractor_location_id: type === 'subcontracted' ? subcontractor_location_id : null,
+      waste_quantity: parsedWasteQuantity,
+      waste_reason: waste_reason || null,
       created_by
     }, { transaction: t });
 
@@ -219,6 +254,8 @@ const updateTransformation = async (req, res) => {
       output_quantity,
       to_location_id,
       subcontractor_location_id,
+      waste_quantity = 0,
+      waste_reason = null,
       created_by
     } = req.body;
 
@@ -254,6 +291,35 @@ const updateTransformation = async (req, res) => {
     if (!input_quantity || input_quantity <= 0 || !output_quantity || output_quantity <= 0) {
       await t.rollback();
       return res.status(400).json({ error: 'Input and output quantities must be greater than 0' });
+    }
+
+    const parsedWasteQuantity = parseFloat(waste_quantity) || 0;
+    if (parsedWasteQuantity < 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Waste quantity cannot be negative' });
+    }
+
+    // Fetch input and output items for mass balance validation
+    const [inputItem, outputItem] = await Promise.all([
+      Item.findByPk(input_item_id, { transaction: t }),
+      Item.findByPk(output_item_id, { transaction: t })
+    ]);
+
+    if (!inputItem || !outputItem) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Input or output article not found' });
+    }
+
+    const parsedInputQty = parseFloat(input_quantity);
+    const parsedOutputQty = parseFloat(output_quantity);
+
+    if (inputItem.unit && outputItem.unit && inputItem.unit === outputItem.unit) {
+      if (parsedInputQty < (parsedOutputQty + parsedWasteQuantity)) {
+        await t.rollback();
+        return res.status(400).json({ 
+          error: `Bilan de matière invalide: La quantité en entrée (${parsedInputQty} ${inputItem.unit}) ne peut pas être inférieure à la somme de la quantité produite (${parsedOutputQty}) et gâchée (${parsedWasteQuantity}).` 
+        });
+      }
     }
 
     // Check available stock on new setup
@@ -293,6 +359,8 @@ const updateTransformation = async (req, res) => {
       output_quantity,
       to_location_id,
       subcontractor_location_id: type === 'subcontracted' ? subcontractor_location_id : null,
+      waste_quantity: parsedWasteQuantity,
+      waste_reason: waste_reason || null,
       created_by
     }, { transaction: t });
 
@@ -398,8 +466,7 @@ const transitionStatus = async (req, res) => {
             lot_id: transformation.input_lot_id,
             location_id: transformation.subcontractor_location_id,
             quantity: transformation.input_quantity,
-            reserved_quantity: transformation.input_quantity,
-            minimum_quantity: 0
+            reserved_quantity: transformation.input_quantity
           }, { transaction: t });
         }
       }
@@ -496,8 +563,7 @@ const transitionStatus = async (req, res) => {
         await LotLocation.create({
           lot_id: outputLot.id,
           location_id: transformation.to_location_id,
-          quantity: transformation.output_quantity,
-          minimum_quantity: 0
+          quantity: transformation.output_quantity
         }, { transaction: t });
       }
 
@@ -589,7 +655,7 @@ const deleteTransformation = async (req, res) => {
     });
     if (lotLoc) {
       await lotLoc.update({
-        reserved_quantity: Math.max(0, lotLoc.reserved_quantity - transformation.input_quantity)
+        reserved_quantity: Math.max(0, parseFloat(lotLoc.reserved_quantity) - parseFloat(transformation.input_quantity))
       }, { transaction: t });
     }
 

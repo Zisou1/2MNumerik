@@ -46,10 +46,14 @@ module.exports = (sequelize) => {
       defaultValue: DataTypes.NOW
     },
     initial_quantity: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(12, 4),
       allowNull: false,
       validate: {
         min: 0
+      },
+      get() {
+        const rawValue = this.getDataValue('initial_quantity');
+        return rawValue !== null && rawValue !== undefined ? parseFloat(rawValue) : rawValue;
       }
     },
     status: {

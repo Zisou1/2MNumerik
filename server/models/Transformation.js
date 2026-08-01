@@ -32,10 +32,14 @@ module.exports = (sequelize) => {
       allowNull: false
     },
     input_quantity: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(12, 4),
       allowNull: false,
       validate: {
-        min: 1
+        min: 0.0001
+      },
+      get() {
+        const rawValue = this.getDataValue('input_quantity');
+        return rawValue !== null && rawValue !== undefined ? parseFloat(rawValue) : rawValue;
       }
     },
     from_location_id: {
@@ -51,10 +55,14 @@ module.exports = (sequelize) => {
       allowNull: true
     },
     output_quantity: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(12, 4),
       allowNull: false,
       validate: {
-        min: 1
+        min: 0.0001
+      },
+      get() {
+        const rawValue = this.getDataValue('output_quantity');
+        return rawValue !== null && rawValue !== undefined ? parseFloat(rawValue) : rawValue;
       }
     },
     to_location_id: {
@@ -63,6 +71,22 @@ module.exports = (sequelize) => {
     },
     subcontractor_location_id: {
       type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    waste_quantity: {
+      type: DataTypes.DECIMAL(12, 4),
+      allowNull: false,
+      defaultValue: 0,
+      validate: {
+        min: 0
+      },
+      get() {
+        const rawValue = this.getDataValue('waste_quantity');
+        return rawValue !== null && rawValue !== undefined ? parseFloat(rawValue) : rawValue;
+      }
+    },
+    waste_reason: {
+      type: DataTypes.ENUM('calage_machine', 'chute_de_coupe', 'erreur_impression', 'autre'),
       allowNull: true
     },
     created_by: {

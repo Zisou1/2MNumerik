@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import AlertDialog from './AlertDialog'
-import { stockAPI, supplierAPI } from '../utils/api'
+import { stockAPI, supplierAPI, userAPI } from '../utils/api'
 
 function TransactionsManagement() {
   const [transactions, setTransactions] = useState([])
   const [items, setItems] = useState([])
   const [locations, setLocations] = useState([])
   const [suppliers, setSuppliers] = useState([])
+  const [atelierUsers, setAtelierUsers] = useState([])
   const [lots, setLots] = useState([]) // Available lots
   const [availableLots, setAvailableLots] = useState([]) // Filtered lots based on item/location
   const [loading, setLoading] = useState(true)
@@ -31,13 +32,19 @@ function TransactionsManagement() {
   const [sortBy, setSortBy] = useState('created_at')
   const [sortOrder, setSortOrder] = useState('DESC')
 
+  // Batch Transfer state
+  const [isBatchMode, setIsBatchMode] = useState(false)
+  const [batchItems, setBatchItems] = useState([
+    { item_id: '', lot_id: '', quantity: '', availableLots: [] }
+  ])
+
   // Form state
   const [formData, setFormData] = useState({
     item_id: '',
     from_location: '',
     to_location: '',
     quantity: '',
-    type: '',
+    type: 'TRANSFER',
     created_by: '',
     lot_id: '', // LOT selection
     supplier_id: '' // Supplier selection for IN transactions
@@ -154,6 +161,27 @@ function TransactionsManagement() {
     }
   }
 
+  // Fetch atelier users for dropdown
+  const fetchAtelierUsers = async () => {
+    try {
+      const data = await userAPI.getUsers({ role: 'atelier' })
+      const usersList = data.users || []
+      if (usersList.length === 0) {
+        const allData = await userAPI.getUsers()
+        setAtelierUsers(allData.users || [])
+      } else {
+        setAtelierUsers(usersList)
+      }
+    } catch (err) {
+      try {
+        const allData = await userAPI.getUsers()
+        setAtelierUsers(allData.users || [])
+      } catch (e) {
+        console.error('Error fetching users:', e)
+      }
+    }
+  }
+
   // Fetch lots for dropdown
   const fetchLots = async () => {
     try {
@@ -249,7 +277,7 @@ function TransactionsManagement() {
       const payload = {
         type: formData.type,
         item_id: parseInt(formData.item_id),
-        quantity: parseInt(formData.quantity),
+        quantity: parseFloat(formData.quantity),
         created_by: formData.created_by,
         from_location: formData.from_location ? parseInt(formData.from_location) : null,
         to_location: formData.to_location ? parseInt(formData.to_location) : null
@@ -281,13 +309,208 @@ function TransactionsManagement() {
     }
   }
 
+  // Create batch transaction
+  const handleBatchSubmit = async (e) => {
+    e.preventDefault()
+    try {
+      const payload = {
+        type: formData.type || 'TRANSFER',
+        from_location: formData.from_location ? parseInt(formData.from_location, 10) : null,
+        to_location: formData.to_location ? parseInt(formData.to_location, 10) : null,
+        created_by: formData.created_by,
+        items: batchItems.map(item => ({
+          item_id: parseInt(item.item_id, 10),
+          lot_id: item.lot_id ? parseInt(item.lot_id, 10) : null,
+          quantity: parseFloat(item.quantity)
+        }))
+      }
+
+      await stockAPI.createBatchTransaction(payload)
+      await fetchTransactions()
+      closeModal()
+    } catch (err) {
+      if (err.message.includes('INSUFFICIENT_STOCK')) {
+        setStockErrorDialog({
+          title: "Stock Insuffisant",
+          message: err.message
+        })
+        return
+      }
+      setError(err.message)
+    }
+  }
+
+  // Batch item row management
+  const addBatchRow = () => {
+    setBatchItems(prev => [
+      ...prev,
+      { item_id: '', lot_id: '', quantity: '', availableLots: [] }
+    ])
+  }
+
+  const removeBatchRow = (index) => {
+    if (batchItems.length <= 1) return
+    setBatchItems(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const updateBatchRow = async (index, field, value) => {
+    const updated = [...batchItems]
+    updated[index][field] = value
+
+    if (field === 'item_id') {
+      updated[index].lot_id = ''
+      if (value && formData.from_location) {
+        let filteredLots = lots
+          .filter(lot => lot.item_id === parseInt(value, 10) && lot.status === 'active')
+          .sort((a, b) => new Date(a.received_date || 0) - new Date(b.received_date || 0))
+
+        try {
+          const data = await stockAPI.getLocation(formData.from_location)
+          const lotLocs = data.lotLocations || []
+          const mapped = filteredLots
+            .map(lot => {
+              const m = lotLocs.find(ll => ll.lot_id === lot.id)
+              return { ...lot, locationQty: m ? m.quantity : 0, locationReservedQty: m ? m.reserved_quantity : 0 }
+            })
+            .filter(lot => lot.locationQty > 0)
+
+          updated[index].availableLots = mapped
+          if (mapped.length > 0) {
+            updated[index].lot_id = mapped[0].id.toString()
+          }
+        } catch (err) {
+          updated[index].availableLots = filteredLots
+        }
+      } else {
+        updated[index].availableLots = []
+      }
+    }
+
+    setBatchItems(updated)
+  }
+
+  // Print Transfer Slip (Bordereau de Transfert)
+  const handlePrintTransferSlip = async (referenceGroup) => {
+    try {
+      const data = await stockAPI.getTransactions({ limit: 1000 })
+      const batchLines = data.transactions.filter(t => t.reference_group === referenceGroup)
+
+      if (batchLines.length === 0) {
+        alert('Aucune ligne trouvée pour ce bordereau')
+        return
+      }
+
+      const firstLine = batchLines[0]
+      const printWindow = window.open('', '_blank')
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Bordereau de Transfert - ${referenceGroup}</title>
+          <style>
+            body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 30px; color: #333; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #00AABB; padding-bottom: 15px; margin-bottom: 20px; }
+            .title { font-size: 20px; font-weight: bold; color: #008899; }
+            .ref-badge { background: #E6F7F9; border: 1px solid #00AABB; color: #008899; padding: 4px 10px; border-radius: 6px; font-size: 14px; font-weight: bold; }
+            .meta-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 12px; margin-bottom: 25px; font-size: 13px; }
+            .meta-card { background: #F9FAFB; border: 1px solid #E5E7EB; padding: 10px 14px; border-radius: 8px; }
+            .meta-label { font-size: 10px; text-transform: uppercase; color: #6B7280; font-weight: bold; }
+            .meta-value { font-size: 14px; font-weight: bold; color: #111827; margin-top: 2px; }
+            .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+            .items-table th { background: #00AABB; color: white; text-align: left; padding: 8px 12px; font-size: 12px; text-transform: uppercase; }
+            .items-table td { padding: 8px 12px; border-bottom: 1px solid #E5E7EB; font-size: 13px; }
+            .items-table tr:nth-child(even) { background: #F9FAFB; }
+            .footer-signatures { display: grid; grid-template-cols: 1fr 1fr; gap: 40px; margin-top: 40px; }
+            .sig-box { border: 1px dashed #9CA3AF; padding: 20px; border-radius: 8px; min-height: 70px; text-align: center; }
+            .sig-title { font-size: 12px; font-weight: bold; color: #4B5563; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="title">📋 BORDEREAU DE TRANSFERT DE STOCK</div>
+              <div style="font-size: 12px; color: #6B7280; margin-top: 2px;">2MNumerik - ERP Impression & Gestion de Stock</div>
+            </div>
+            <div class="ref-badge">${referenceGroup}</div>
+          </div>
+
+          <div class="meta-grid">
+            <div class="meta-card">
+              <div class="meta-label">Emplacement Source</div>
+              <div class="meta-value">🏢 ${firstLine.fromLocation?.name || '—'}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">Emplacement Destination</div>
+              <div class="meta-value">🔧 ${firstLine.toLocation?.name || '—'}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">Date du Transfert</div>
+              <div class="meta-value">📅 ${new Date(firstLine.created_at).toLocaleString('fr-FR')}</div>
+            </div>
+            <div class="meta-card">
+              <div class="meta-label">Opérateur / Responsable</div>
+              <div class="meta-value">👤 ${firstLine.created_by}</div>
+            </div>
+          </div>
+
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Article</th>
+                <th>Numéro de Lot</th>
+                <th>Quantité</th>
+                <th>Unité</th>
+                <th>Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${batchLines.map((line, index) => `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td><strong>${line.item?.name || '—'}</strong></td>
+                  <td>${line.lot?.lot_number || 'N/A'}</td>
+                  <td><strong>${parseFloat(line.quantity)}</strong></td>
+                  <td>${line.item?.unit || 'unite'}</td>
+                  <td>${line.status === 'validated' ? 'Validé' : line.status === 'draft' ? 'Brouillon' : 'Annulé'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="footer-signatures">
+            <div class="sig-box">
+              <div class="sig-title">Visa / Signature Emplacement Source</div>
+            </div>
+            <div class="sig-box">
+              <div class="sig-title">Visa / Signature Emplacement Destination</div>
+            </div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              setTimeout(function() { window.print(); }, 300);
+            }
+          </script>
+        </body>
+        </html>
+      `
+      printWindow.document.write(html)
+      printWindow.document.close()
+    } catch (err) {
+      console.error('Error printing transfer slip:', err)
+      alert('Erreur lors de l\'impression du bordereau')
+    }
+  }
+
   // Update transaction
   const updateTransaction = async () => {
     try {
       const payload = {
         type: formData.type,
         item_id: parseInt(formData.item_id),
-        quantity: parseInt(formData.quantity),
+        quantity: parseFloat(formData.quantity),
         created_by: formData.created_by,
         from_location: formData.from_location ? parseInt(formData.from_location) : null,
         to_location: formData.to_location ? parseInt(formData.to_location) : null
@@ -515,7 +738,7 @@ function TransactionsManagement() {
       const selectedLot = availableLots.find(lot => lot.id.toString() === formData.lot_id.toString())
       if (selectedLot) {
         const availableStock = selectedLot.locationQty - (selectedLot.locationReservedQty || 0)
-        if (formData.quantity && parseInt(formData.quantity) > availableStock) {
+        if (formData.quantity && parseFloat(formData.quantity) > availableStock) {
           return true
         }
       }
@@ -530,8 +753,9 @@ function TransactionsManagement() {
     fetchItems()
     fetchLocations()
     fetchSuppliers()
+    fetchAtelierUsers()
     fetchLots()
-  }, [])
+  }, [currentPage, filterType, filterStatus, sortBy, sortOrder])
 
   // Handle filter changes
   useEffect(() => {
@@ -678,7 +902,7 @@ function TransactionsManagement() {
                     </div>
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{transaction.quantity}</div>
+                    <div className="text-sm font-medium text-gray-900">{parseFloat(transaction.quantity)}</div>
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-700">
@@ -715,6 +939,15 @@ function TransactionsManagement() {
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">
+                      {transaction.reference_group && (
+                        <button
+                          onClick={() => handlePrintTransferSlip(transaction.reference_group)}
+                          className="text-[#00AABB] hover:text-[#008899] font-semibold text-xs flex items-center gap-1 border border-[#00AABB]/30 px-2 py-0.5 rounded bg-blue-50/50 hover:bg-blue-100 transition-colors"
+                          title="Imprimer le Bordereau de Transfert"
+                        >
+                          📋 Bordereau
+                        </button>
+                      )}
                       <button
                         onClick={() => openViewModal(transaction)}
                         className="text-blue-600 hover:text-blue-900"
@@ -731,9 +964,9 @@ function TransactionsManagement() {
                           </button>
                           <button
                             onClick={() => handleValidateClick(transaction)}
-                            className="text-green-600 hover:text-green-900"
+                            className="text-green-600 hover:text-green-900 font-semibold"
                           >
-                            Valider
+                            {transaction.type === 'TRANSFER' ? '📥 Valider Réception' : transaction.type === 'IN' ? '📦 Valider Entrée' : '✅ Valider'}
                           </button>
                           <button
                             onClick={() => cancelTransaction(transaction.id)}
@@ -817,13 +1050,196 @@ function TransactionsManagement() {
       {/* Create/Edit Modal */}
       {showModal && (modalMode === 'create' || modalMode === 'edit') && (
         <div className="fixed inset-0 bg-gray-600/50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+          <div className={`relative top-10 mx-auto p-5 border w-full ${isBatchMode && modalMode === 'create' ? 'max-w-4xl' : 'max-w-2xl'} shadow-lg rounded-md bg-white`}>
             <div className="mt-3">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
-                {modalMode === 'create' ? 'Nouvelle Transaction' : 'Modifier Transaction'}
+                {modalMode === 'create' ? (isBatchMode ? '📋 Nouveau Transfert Multi-Articles (Bordereau)' : 'Nouvelle Transaction') : 'Modifier Transaction'}
               </h3>
 
-              <form onSubmit={handleSubmit}>
+              {modalMode === 'create' && (
+                <div className="flex items-center justify-between bg-blue-50/60 p-3 rounded-lg border border-blue-100 mb-5">
+                  <span className="text-xs font-semibold text-blue-900">Mode de saisie :</span>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsBatchMode(false)}
+                      className={`px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${!isBatchMode ? 'bg-[#00AABB] text-white shadow-sm' : 'bg-white text-gray-700 border hover:bg-gray-50'}`}
+                    >
+                      Article Unique
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsBatchMode(true)}
+                      className={`px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${isBatchMode ? 'bg-[#00AABB] text-white shadow-sm' : 'bg-white text-gray-700 border hover:bg-gray-50'}`}
+                    >
+                      📋 Transfert Multi-Articles (Bordereau)
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {isBatchMode && modalMode === 'create' ? (
+                <form onSubmit={handleBatchSubmit}>
+                  {/* Common Location & Header Inputs */}
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Type *</label>
+                      <select
+                        value={formData.type}
+                        onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
+                      >
+                        <option value="TRANSFER">Transfert entre Emplacements</option>
+                        <option value="OUT">Sortie Multi-Articles</option>
+                        <option value="IN">Entrée Multi-Articles</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Emplacement Source *</label>
+                      <select
+                        required={formData.type !== 'IN'}
+                        value={formData.from_location}
+                        onChange={(e) => handleFromLocationChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
+                      >
+                        <option value="">Sélectionner source</option>
+                        {locations.map(loc => (
+                          <option key={loc.id} value={loc.id}>{loc.name} ({getLocationTypeLabel(loc.type)})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Emplacement Destination *</label>
+                      <select
+                        required={formData.type !== 'OUT'}
+                        value={formData.to_location}
+                        onChange={(e) => handleToLocationChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
+                      >
+                        <option value="">Sélectionner destination</option>
+                        {locations.map(loc => (
+                          <option key={loc.id} value={loc.id}>{loc.name} ({getLocationTypeLabel(loc.type)})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Créé par *</label>
+                    <select
+                      required
+                      value={formData.created_by}
+                      onChange={(e) => setFormData({ ...formData, created_by: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB] bg-white"
+                    >
+                      <option value="">Sélectionner un utilisateur Atelier *</option>
+                      {atelierUsers.map(u => (
+                        <option key={u.id} value={u.username}>{u.username} ({u.role})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Batch Items Line Table */}
+                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 mb-6">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="text-sm font-bold text-gray-800">Articles du transfert ({batchItems.length})</h4>
+                      <button
+                        type="button"
+                        onClick={addBatchRow}
+                        className="px-3 py-1 bg-emerald-600 text-white rounded text-xs font-semibold hover:bg-emerald-700 transition-colors flex items-center gap-1"
+                      >
+                        + Ajouter un article
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {batchItems.map((itemRow, idx) => (
+                        <div key={idx} className="flex items-center gap-3 bg-white p-3 border rounded-md shadow-sm">
+                          <div className="flex-1">
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">Article #{idx + 1}</label>
+                            <select
+                              required
+                              value={itemRow.item_id}
+                              onChange={(e) => updateBatchRow(idx, 'item_id', e.target.value)}
+                              className="w-full text-sm px-2.5 py-1.5 border border-gray-300 rounded focus:ring-[#00AABB] focus:border-[#00AABB]"
+                            >
+                              <option value="">Choisir un article...</option>
+                              {items.map(it => (
+                                <option key={it.id} value={it.id}>{it.name} ({it.unit || 'unite'})</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {formData.type !== 'IN' && (
+                            <div className="flex-1">
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Lot Source</label>
+                              <select
+                                required
+                                value={itemRow.lot_id}
+                                onChange={(e) => updateBatchRow(idx, 'lot_id', e.target.value)}
+                                className="w-full text-sm px-2.5 py-1.5 border border-gray-300 rounded focus:ring-[#00AABB] focus:border-[#00AABB]"
+                                disabled={!itemRow.item_id || !formData.from_location}
+                              >
+                                <option value="">Sélectionner lot...</option>
+                                {(itemRow.availableLots || []).map(l => (
+                                  <option key={l.id} value={l.id}>
+                                    {l.lot_number} (Disponible: {l.locationQty})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          <div className="w-32">
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">Quantité</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              required
+                              value={itemRow.quantity}
+                              onChange={(e) => updateBatchRow(idx, 'quantity', e.target.value)}
+                              className="w-full text-sm px-2.5 py-1.5 border border-gray-300 rounded focus:ring-[#00AABB] focus:border-[#00AABB]"
+                              placeholder="Ex: 5"
+                            />
+                          </div>
+
+                          {batchItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeBatchRow(idx)}
+                              className="text-red-500 hover:text-red-700 text-lg p-1 mt-5"
+                              title="Supprimer la ligne"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Buttons */}
+                  <div className="flex justify-end space-x-3 border-t pt-4">
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-[#00AABB] text-white rounded-md text-sm font-semibold hover:bg-[#008899]"
+                    >
+                      Valider le transfert multi-articles ({batchItems.length})
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={handleSubmit}>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -920,7 +1336,8 @@ function TransactionsManagement() {
                     </label>
                     <input
                       type="number"
-                      min="1"
+                      min="0"
+                      step="any"
                       max={selectedLotAvailableQty !== null && (formData.type === 'TRANSFER' || formData.type === 'OUT') ? selectedLotAvailableQty : undefined}
                       required
                       value={formData.quantity}
@@ -928,21 +1345,21 @@ function TransactionsManagement() {
                       className={`w-full px-3 py-2 border rounded-md focus:ring-[#00AABB] focus:border-[#00AABB] ${
                         selectedLotAvailableQty !== null && 
                         (formData.type === 'TRANSFER' || formData.type === 'OUT') && 
-                        parseInt(formData.quantity) > selectedLotAvailableQty
+                        parseFloat(formData.quantity) > selectedLotAvailableQty
                           ? 'border-red-500 text-red-900 focus:ring-red-500 focus:border-red-500'
                           : 'border-gray-300'
                       }`}
-                      placeholder="Ex: 10"
+                      placeholder="Ex: 10.5"
                     />
                     {selectedLotAvailableQty !== null && (formData.type === 'TRANSFER' || formData.type === 'OUT') && (
                       <p className={`text-xs mt-1 ${
-                        parseInt(formData.quantity) > selectedLotAvailableQty 
+                        parseFloat(formData.quantity) > selectedLotAvailableQty 
                           ? 'text-red-600 font-medium' 
                           : 'text-gray-500'
                       }`}>
                         Disponible : {selectedLotAvailableQty} unité(s)
                         {selectedLot.locationReservedQty > 0 && ` (dont ${selectedLot.locationReservedQty} rés.)`}
-                        {parseInt(formData.quantity) > selectedLotAvailableQty && ' - La quantité dépasse le stock disponible.'}
+                        {parseFloat(formData.quantity) > selectedLotAvailableQty && ' - La quantité dépasse le stock disponible.'}
                       </p>
                     )}
                   </div>
@@ -951,14 +1368,17 @@ function TransactionsManagement() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Créé par *
                     </label>
-                    <input
-                      type="text"
+                    <select
                       required
                       value={formData.created_by}
                       onChange={(e) => setFormData({ ...formData, created_by: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
-                      placeholder="Nom de l'utilisateur"
-                    />
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB] bg-white"
+                    >
+                      <option value="">Sélectionner un utilisateur Atelier *</option>
+                      {atelierUsers.map(u => (
+                        <option key={u.id} value={u.username}>{u.username} ({u.role})</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -1025,14 +1445,15 @@ function TransactionsManagement() {
                 {formData.type === 'IN' && (
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Fournisseur
+                      Fournisseur *
                     </label>
                     <select
+                      required
                       value={formData.supplier_id}
                       onChange={(e) => setFormData({ ...formData, supplier_id: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
                     >
-                      <option value="">Sélectionner un fournisseur (optionnel)</option>
+                      <option value="">Sélectionner un fournisseur *</option>
                       {suppliers.map((supplier) => (
                         <option key={supplier.id} value={supplier.id}>
                           {supplier.nom}
@@ -1104,10 +1525,11 @@ function TransactionsManagement() {
                   </button>
                 </div>
               </form>
-            </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
+    )}
 
       {/* View Modal */}
       {showModal && modalMode === 'view' && selectedTransaction && (
@@ -1177,7 +1599,7 @@ function TransactionsManagement() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-500">Quantité</label>
-                  <p className="text-gray-900 font-medium">{selectedTransaction.quantity}</p>
+                  <p className="text-gray-900 font-medium">{parseFloat(selectedTransaction.quantity)}</p>
                 </div>
 
                 {selectedTransaction.type === 'TRANSFER' ? (
@@ -1280,18 +1702,43 @@ function TransactionsManagement() {
             setValidatorName('')
           }}
           onConfirm={confirmValidation}
-          title="Valider la transaction"
+          title={
+            validateConfirm.type === 'TRANSFER'
+              ? '📥 Valider la Réception du Transfert'
+              : validateConfirm.type === 'IN'
+              ? '📦 Valider la Réception Stock (Entrée)'
+              : '📤 Valider la Sortie de Stock'
+          }
           message={
-            <div className="space-y-3">
-              <p>Entrez le nom du validateur pour confirmer la validation de cette transaction :</p>
-              <input
-                type="text"
-                value={validatorName}
-                onChange={(e) => setValidatorName(e.target.value)}
-                placeholder="Nom du validateur"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB]"
-                autoFocus
-              />
+            <div className="space-y-4 text-left">
+              <p className="text-sm text-gray-600">
+                {validateConfirm.type === 'TRANSFER'
+                  ? `Confirmer la réception physique des articles à l'emplacement destination (${validateConfirm.toLocation?.name || 'Cible'}) :`
+                  : validateConfirm.type === 'IN'
+                  ? `Confirmer la réception physique des articles et la création du lot à l'emplacement (${validateConfirm.toLocation?.name || 'Cible'}) :`
+                  : `Confirmer le départ physique des articles de l'emplacement (${validateConfirm.fromLocation?.name || 'Source'}) :`}
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {validateConfirm.type === 'TRANSFER'
+                    ? 'Nom du Récepteur / Destinataire *'
+                    : validateConfirm.type === 'IN'
+                    ? 'Nom du Contrôleur / Récepteur *'
+                    : 'Nom du Responsable Expédition *'}
+                </label>
+                <select
+                  required
+                  value={validatorName}
+                  onChange={(e) => setValidatorName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-[#00AABB] focus:border-[#00AABB] bg-white"
+                  autoFocus
+                >
+                  <option value="">Sélectionner un utilisateur Atelier *</option>
+                  {atelierUsers.map(u => (
+                    <option key={u.id} value={u.username}>{u.username} ({u.role})</option>
+                  ))}
+                </select>
+              </div>
             </div>
           }
           confirmText="Valider"

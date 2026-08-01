@@ -4,6 +4,7 @@ const {
   getAllTransactions,
   getTransactionById,
   createTransaction,
+  createBatchTransaction,
   updateTransaction,
   deleteTransaction,
   validateTransaction,
@@ -11,17 +12,19 @@ const {
 } = require('../controllers/transactionController');
 const { authenticateToken } = require('../middleware/auth');
 
-// Public routes - GET operations
+// Protect all transaction routes with authentication
+router.use(authenticateToken);
+
 router.get('/', getAllTransactions);
 router.get('/:id', getTransactionById);
 
-// Protected routes (require authentication)
-router.post('/', authenticateToken, createTransaction);
-router.put('/:id', authenticateToken, updateTransaction);
-router.delete('/:id', authenticateToken, deleteTransaction);
+router.post('/', createTransaction);
+router.post('/batch', createBatchTransaction);
+router.put('/:id', updateTransaction);
+router.delete('/:id', deleteTransaction);
 
 // Special transaction operations
-router.patch('/:id/validate', authenticateToken, validateTransaction);
-router.patch('/:id/cancel', authenticateToken, cancelTransaction);
+router.patch('/:id/validate', validateTransaction);
+router.patch('/:id/cancel', cancelTransaction);
 
 module.exports = router;

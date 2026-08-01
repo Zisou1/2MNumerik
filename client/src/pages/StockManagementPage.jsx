@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import ItemsManagement from '../components/ItemsManagement'
 import LocationsManagement from '../components/LocationsManagement'
 import TransactionsManagement from '../components/TransactionsManagement'
@@ -6,8 +7,43 @@ import LotsManagement from '../components/LotsManagement'
 import TransformationsManagement from '../components/TransformationsManagement'
 import { stockAPI } from '../utils/api'
 
+const VALID_TABS = ['overview', 'items', 'locations', 'lots', 'transactions', 'transformations', 'alerts']
+
 function StockManagementPage() {
-  const [activeTab, setActiveTab] = useState('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const getInitialTab = () => {
+    const paramTab = searchParams.get('tab')
+    if (paramTab && VALID_TABS.includes(paramTab)) {
+      return paramTab
+    }
+    const localTab = localStorage.getItem('stock_active_tab')
+    if (localTab && VALID_TABS.includes(localTab)) {
+      return localTab
+    }
+    return 'overview'
+  }
+
+  const [activeTab, setActiveTabState] = useState(getInitialTab)
+
+  const setActiveTab = (tabId) => {
+    setActiveTabState(tabId)
+    setSearchParams({ tab: tabId }, { replace: true })
+    localStorage.setItem('stock_active_tab', tabId)
+  }
+
+  useEffect(() => {
+    const paramTab = searchParams.get('tab')
+    if (paramTab && VALID_TABS.includes(paramTab)) {
+      if (paramTab !== activeTab) {
+        setActiveTabState(paramTab)
+        localStorage.setItem('stock_active_tab', paramTab)
+      }
+    } else {
+      setSearchParams({ tab: activeTab }, { replace: true })
+      localStorage.setItem('stock_active_tab', activeTab)
+    }
+  }, [searchParams])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   
@@ -343,7 +379,6 @@ function StockManagementPage() {
     }
   }
 
-  // Fetch lot details for a specific item and location
   const fetchLotDetails = async (itemId, locationId) => {
     try {
       setLotModalLoading(true)
@@ -632,6 +667,11 @@ function StockManagementPage() {
                                             ⚠️
                                           </span>
                                         )}
+                                        {item.unit && item.unit !== 'unite' && (
+                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                                            {item.unit}
+                                          </span>
+                                        )}
                                       </div>
                                       {item.description && (
                                         <p className="text-xs text-gray-500 truncate max-w-48">{item.description}</p>
@@ -675,10 +715,12 @@ function StockManagementPage() {
                                         </button>
                                       ) : (
                                         <div className="flex flex-col items-center">
-                                          <div className="w-10 h-10 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center">
-                                            <span className="text-gray-400 text-sm">-</span>
+                                          <div className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center">
+                                            <span className="text-gray-300 text-sm">-</span>
                                           </div>
-                                          <span className="text-xs text-gray-400 mt-1">N/A</span>
+                                          <div className="text-[10px] font-medium text-gray-400 mt-1 bg-gray-50 border border-transparent px-1.5 py-0.5 rounded">
+                                            min: 0
+                                          </div>
                                         </div>
                                       )}
                                     </td>
@@ -819,21 +861,129 @@ function StockManagementPage() {
         return <TransformationsManagement />
 
       case 'alerts':
-        return (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Alertes de Stock</h2>
-            
-            <div className="text-center py-12">
-              <span className="text-6xl">✅</span>
-              <p className="text-gray-500 mt-4">Aucune alerte active</p>
-              <p className="text-sm text-gray-400 mt-2">Les alertes de stock faible apparaîtront ici</p>
-            </div>
-          </div>
-        )
+        return <AlertsTabContent />
 
       default:
         return null
     }
+  }
+
+  // --- Alerts Tab Component ---
+  const AlertsTabContent = () => {
+    const [alerts, setAlerts] = useState([])
+    const [alertsLoading, setAlertsLoading] = useState(true)
+    const [alertsError, setAlertsError] = useState(null)
+
+    const fetchAlerts = async () => {
+      try {
+        setAlertsLoading(true)
+        const data = await stockAPI.getStockAlerts()
+        setAlerts(data)
+        setAlertsError(null)
+      } catch (err) {
+        setAlertsError("Erreur lors du chargement des alertes")
+        console.error(err)
+      } finally {
+        setAlertsLoading(false)
+      }
+    }
+
+    useEffect(() => {
+      fetchAlerts()
+    }, [])
+
+    return (
+      <div className="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-100 animate-fade-in">
+        <div className="bg-gradient-to-r from-red-600 to-orange-600 px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🚨</span>
+            <div>
+              <h2 className="text-xl font-bold text-white">À Réapprovisionner</h2>
+              <p className="text-white/80 text-sm">Articles en rupture ou stock faible</p>
+            </div>
+          </div>
+          <button 
+            onClick={fetchAlerts}
+            className="flex items-center gap-2 bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+          >
+            <svg className={`w-4 h-4 ${alertsLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Actualiser
+          </button>
+        </div>
+
+        {alertsLoading ? (
+          <div className="flex justify-center items-center h-48">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+          </div>
+        ) : alertsError ? (
+          <div className="p-6 text-center text-red-600 bg-red-50">{alertsError}</div>
+        ) : alerts.length === 0 ? (
+          <div className="text-center py-16 bg-gray-50">
+            <span className="text-6xl mb-4 block">✅</span>
+            <h3 className="text-xl font-medium text-gray-700">Aucune alerte</h3>
+            <p className="text-gray-500 mt-2">Tous vos stocks sont au-dessus de leurs seuils minimum.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Article
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Emplacement
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Quantité Min
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Stock Actuel
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Statut
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {alerts.map((alert, idx) => (
+                  <tr key={`${alert.item_id}-${alert.location_id}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="font-medium text-gray-900">{alert.item_name}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-600 flex items-center gap-2">
+                        <span className="text-gray-400">📍</span>
+                        {alert.location_name}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className="text-sm font-medium text-gray-500">{alert.minimum_quantity}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className={`inline-flex items-center justify-center min-w-[3rem] px-2.5 py-1 rounded-lg text-sm font-bold ${
+                        alert.status === 'rupture' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                      }`}>
+                        {alert.available_quantity}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium border ${
+                        alert.status === 'rupture' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                      }`}>
+                        {alert.status === 'rupture' ? '🚨 Rupture' : '⚠️ Faible'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (

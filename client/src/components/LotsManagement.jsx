@@ -100,21 +100,6 @@ function LotsManagement() {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
-  // Open create modal
-  const handleCreate = () => {
-    setModalMode('create')
-    setFormData({
-      lot_number: '',
-      item_id: '',
-      supplier_id: '',
-      manufacturing_date: '',
-      expiration_date: '',
-      initial_quantity: '',
-      status: 'active',
-      notes: ''
-    })
-    setShowModal(true)
-  }
 
   // Open edit modal
   const handleEdit = (lot) => {
@@ -133,17 +118,11 @@ function LotsManagement() {
     setShowModal(true)
   }
 
-  // Submit form (create or update)
   const handleSubmit = async (e) => {
     e.preventDefault()
     
     try {
-      if (modalMode === 'create') {
-        await stockAPI.createLot(formData)
-      } else {
-        await stockAPI.updateLot(selectedLot.id, formData)
-      }
-
+      await stockAPI.updateLot(selectedLot.id, formData)
       setShowModal(false)
       fetchLots()
     } catch (err) {
@@ -218,11 +197,23 @@ function LotsManagement() {
 
   return (
     <div className="p-6">
-      {/* Header */}
       <div className="mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Gestion des Lots</h1>
           <p className="text-gray-600">Gérer les lots d'articles avec traçabilité complète</p>
+        </div>
+      </div>
+      
+      <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+        <div className="flex">
+          <div className="flex-shrink-0">
+            <span className="text-blue-500">ℹ️</span>
+          </div>
+          <div className="ml-3">
+            <p className="text-sm text-blue-700">
+              Pour garantir la traçabilité du stock, la création de nouveaux lots s'effectue uniquement via le module <strong>Transactions</strong> (Entrée en stock).
+            </p>
+          </div>
         </div>
       </div>
 
@@ -327,7 +318,7 @@ function LotsManagement() {
                       <div className="text-sm text-gray-900">{lot.supplier?.nom || 'N/A'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{lot.initial_quantity}</div>
+                      <div className="text-sm text-gray-900">{parseFloat(lot.initial_quantity)}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
@@ -449,7 +440,7 @@ function LotsManagement() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">
-              {modalMode === 'create' ? 'Créer un Lot' : 'Modifier le Lot'}
+              Modifier le Lot
             </h2>
             <form onSubmit={handleSubmit}>
               <div className="grid grid-cols-2 gap-4">
@@ -469,14 +460,13 @@ function LotsManagement() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Article *
+                    Article
                   </label>
                   <select
                     name="item_id"
                     value={formData.item_id}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed"
                   >
                     <option value="">Sélectionner un article</option>
                     {items.map(item => (
@@ -504,16 +494,14 @@ function LotsManagement() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Quantité Initiale *
+                    Quantité Initiale
                   </label>
                   <input
                     type="number"
                     name="initial_quantity"
                     value={formData.initial_quantity}
-                    onChange={handleInputChange}
-                    required
-                    min="1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed"
                   />
                 </div>
 
@@ -586,7 +574,7 @@ function LotsManagement() {
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
-                  {modalMode === 'create' ? 'Créer' : 'Enregistrer'}
+                  Enregistrer
                 </button>
               </div>
             </form>

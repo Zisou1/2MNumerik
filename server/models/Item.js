@@ -19,6 +19,19 @@ module.exports = (sequelize) => {
     description: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    unit: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'unite'
+    },
+    unit_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'units',
+        key: 'id'
+      }
     }
   }, {
     tableName: 'items',
@@ -29,6 +42,12 @@ module.exports = (sequelize) => {
 
   // Define associations
   Item.associate = function(models) {
+    // Item belongs to Unit
+    Item.belongsTo(models.Unit, {
+      foreignKey: 'unit_id',
+      as: 'unitInfo'
+    });
+
     // Item has many lots
     Item.hasMany(models.Lot, {
       foreignKey: 'item_id',
@@ -39,6 +58,12 @@ module.exports = (sequelize) => {
     Item.hasMany(models.Transaction, {
       foreignKey: 'item_id',
       as: 'transactions'
+    });
+
+    // Item has many item locations
+    Item.hasMany(models.ItemLocation, {
+      foreignKey: 'item_id',
+      as: 'itemLocations'
     });
   };
 

@@ -39,11 +39,6 @@ router.get('/:id', lotController.getLotById);
  */
 router.get('/:id/document', lotController.generateLotDocument);
 
-/**
- * POST /api/lots
- * Create a new lot
- */
-router.post('/', lotController.createLot);
 
 /**
  * PUT /api/lots/:id

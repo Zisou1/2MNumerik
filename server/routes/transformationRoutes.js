@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const transformationController = require('../controllers/transformationController');
+const { authenticateToken } = require('../middleware/auth');
+
+// Protect all transformation routes with authentication
+router.use(authenticateToken);
 
 router.get('/', transformationController.getAllTransformations);
 router.get('/:id', transformationController.getTransformationById);

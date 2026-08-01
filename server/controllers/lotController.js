@@ -156,111 +156,6 @@ const getLotById = async (req, res) => {
   }
 };
 
-// Create new lot
-const createLot = async (req, res) => {
-  const t = await sequelize.transaction();
-  
-  try {
-    const {
-      item_id,
-      supplier_id,
-      manufacturing_date,
-      expiration_date,
-      received_date,
-      initial_quantity,
-      status = 'active',
-      notes,
-      location_id,
-      minimum_quantity = 0,
-      use_custom_lot_number = false
-    } = req.body;
-
-    // Validation
-    if (!item_id) {
-      return res.status(400).json({ error: 'Item ID is required' });
-    }
-    
-    if (!initial_quantity || initial_quantity <= 0) {
-      return res.status(400).json({ error: 'Initial quantity must be greater than 0' });
-    }
-    
-    if (!location_id) {
-      return res.status(400).json({ error: 'Location ID is required' });
-    }
-
-    // Verify item exists
-    const item = await Item.findByPk(item_id);
-    if (!item) {
-      await t.rollback();
-      return res.status(404).json({ error: 'Item not found' });
-    }
-
-    // Verify location exists
-    const location = await Location.findByPk(location_id);
-    if (!location) {
-      await t.rollback();
-      return res.status(404).json({ error: 'Location not found' });
-    }
-
-    // Generate lot number
-    const lot_number = use_custom_lot_number 
-      ? await generateCustomLotNumber(item.name)
-      : await generateLotNumber(item_id);
-
-    // Create lot
-    const lot = await Lot.create({
-      lot_number,
-      item_id,
-      supplier_id: supplier_id || null,
-      manufacturing_date: manufacturing_date || null,
-      expiration_date: expiration_date || null,
-      received_date: received_date || new Date(),
-      initial_quantity,
-      status,
-      notes: notes || null
-    }, { transaction: t });
-
-    // Create lot_location entry
-    await LotLocation.create({
-      lot_id: lot.id,
-      location_id,
-      quantity: initial_quantity,
-      minimum_quantity
-    }, { transaction: t });
-
-    await t.commit();
-
-    // Fetch the created lot with associations
-    const createdLot = await Lot.findByPk(lot.id, {
-      include: [
-        {
-          model: Item,
-          as: 'item'
-        },
-        {
-          model: Supplier,
-          as: 'supplier'
-        },
-        {
-          model: LotLocation,
-          as: 'lotLocations',
-          include: [
-            {
-              model: Location,
-              as: 'location'
-            }
-          ]
-        }
-      ]
-    });
-
-    res.status(201).json(createdLot);
-  } catch (error) {
-    await t.rollback();
-    console.error('Error creating lot:', error);
-    res.status(500).json({ error: 'Failed to create lot' });
-  }
-};
 
 // Update lot
 const updateLot = async (req, res) => {
@@ -339,6 +234,14 @@ const deleteLot = async (req, res) => {
     if (totalQuantity > 0) {
       return res.status(400).json({ 
         error: 'Cannot delete lot with remaining quantity. Please deplete or adjust the lot first.' 
+      });
+    }
+
+    // Check if lot is referenced in any transactions
+    const transactionCount = await Transaction.count({ where: { lot_id: id } });
+    if (transactionCount > 0) {
+      return res.status(400).json({ 
+        error: 'Impossible de supprimer ce lot car il est rattaché à un historique de transactions. Il doit être conservé pour la traçabilité.' 
       });
     }
 
@@ -534,7 +437,6 @@ const generateLotDocument = async (req, res) => {
 module.exports = {
   getLots,
   getLotById,
-  createLot,
   updateLot,
   deleteLot,
   getLotsByItem,

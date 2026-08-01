@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import AlertDialog from './AlertDialog'
-import { stockAPI, supplierAPI, transformationAPI } from '../utils/api'
+import { stockAPI, supplierAPI, transformationAPI, userAPI } from '../utils/api'
 
 function TransformationsManagement() {
   const [transformations, setTransformations] = useState([])
   const [items, setItems] = useState([])
   const [locations, setLocations] = useState([])
+  const [atelierUsers, setAtelierUsers] = useState([])
   const [lots, setLots] = useState([]) // All lots for component lookup
   const [availableInputLots, setAvailableInputLots] = useState([]) // Lots for selected input item
   const [inputLotLocations, setInputLotLocations] = useState([]) // Locations where input lot exists
@@ -40,6 +41,8 @@ function TransformationsManagement() {
     output_quantity: '',
     to_location_id: '',
     subcontractor_location_id: '',
+    waste_quantity: '0',
+    waste_reason: '',
     created_by: ''
   })
   
@@ -96,6 +99,20 @@ function TransformationsManagement() {
       setItems(itemsData.items || [])
       setLocations(locationsData.locations || [])
       setLots(lotsData.lots || [])
+
+      try {
+        const usersData = await userAPI.getUsers({ role: 'atelier' })
+        const list = usersData.users || []
+        if (list.length === 0) {
+          const allUsersData = await userAPI.getUsers()
+          setAtelierUsers(allUsersData.users || [])
+        } else {
+          setAtelierUsers(list)
+        }
+      } catch (e) {
+        const allUsersData = await userAPI.getUsers()
+        setAtelierUsers(allUsersData.users || [])
+      }
     } catch (err) {
       console.error('Error loading lookups:', err)
     }
@@ -224,7 +241,7 @@ function TransformationsManagement() {
     
     if (selectedLotLocData) {
       const available = selectedLotLocData.quantity - selectedLotLocData.reserved_quantity
-      if (parseInt(formData.input_quantity, 10) > available) {
+      if (parseFloat(formData.input_quantity) > available) {
         setStockErrorDialog({
           title: 'Stock Insuffisant',
           message: `Le stock disponible (${available}) est inférieur à la quantité demandée (${formData.input_quantity}).`
@@ -238,12 +255,14 @@ function TransformationsManagement() {
         type: formData.type,
         input_item_id: parseInt(formData.input_item_id, 10),
         input_lot_id: parseInt(formData.input_lot_id, 10),
-        input_quantity: parseInt(formData.input_quantity, 10),
+        input_quantity: parseFloat(formData.input_quantity),
         from_location_id: parseInt(formData.from_location_id, 10),
         output_item_id: parseInt(formData.output_item_id, 10),
-        output_quantity: parseInt(formData.output_quantity, 10),
+        output_quantity: parseFloat(formData.output_quantity),
         to_location_id: parseInt(formData.to_location_id, 10),
         subcontractor_location_id: formData.type === 'subcontracted' ? parseInt(formData.subcontractor_location_id, 10) : null,
+        waste_quantity: parseFloat(formData.waste_quantity) || 0,
+        waste_reason: formData.waste_reason || null,
         created_by: formData.created_by
       }
 
@@ -446,9 +465,9 @@ function TransformationsManagement() {
                       <div className="text-xs text-gray-400">Emplacement: {tf.fromLocation?.name}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-800">{tf.input_quantity} unité(s)</div>
+                      <div className="font-semibold text-gray-800">{parseFloat(tf.input_quantity)} unité(s)</div>
                       <span className="text-gray-400 text-xs">devient</span>
-                      <div className="font-semibold text-blue-600">{tf.output_quantity} unité(s)</div>
+                      <div className="font-semibold text-blue-600">{parseFloat(tf.output_quantity)} unité(s)</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{tf.outputItem?.name}</div>
@@ -560,14 +579,19 @@ function TransformationsManagement() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Créé Par *</label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    placeholder="Nom du créateur"
                     value={formData.created_by}
                     onChange={(e) => setFormData({ ...formData, created_by: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-[#00AABB]"
-                  />
+                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-[#00AABB] bg-white"
+                  >
+                    <option value="">Sélectionner un utilisateur Atelier *</option>
+                    {atelierUsers.map((u) => (
+                      <option key={u.id} value={u.username}>
+                        {u.username} ({u.role})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -650,7 +674,8 @@ function TransformationsManagement() {
                     <input
                       type="number"
                       required
-                      min="1"
+                      min="0"
+                      step="any"
                       placeholder="Quantité brute"
                       value={formData.input_quantity}
                       onChange={(e) => setFormData({ ...formData, input_quantity: e.target.value })}
@@ -701,18 +726,51 @@ function TransformationsManagement() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-blue-700 mb-1">Quantité finale à produire *</label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    placeholder="Quantité transformée"
-                    value={formData.output_quantity}
-                    onChange={(e) => setFormData({ ...formData, output_quantity: e.target.value })}
-                    className="w-full max-w-xs px-3 py-2 border border-blue-200 rounded-lg text-sm"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-blue-700 mb-1">Quantité finale à produire *</label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="any"
+                      placeholder="Quantité transformée"
+                      value={formData.output_quantity}
+                      onChange={(e) => setFormData({ ...formData, output_quantity: e.target.value })}
+                      className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-[#00AABB] mb-1">Quantité gâchée (Scrap/Gâche)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="Ex: 10.5"
+                      value={formData.waste_quantity}
+                      onChange={(e) => setFormData({ ...formData, waste_quantity: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    />
+                  </div>
                 </div>
+
+                {parseFloat(formData.waste_quantity) > 0 && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Motif de gâche</label>
+                    <select
+                      value={formData.waste_reason}
+                      onChange={(e) => setFormData({ ...formData, waste_reason: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                    >
+                      <option value="">Sélectionner un motif</option>
+                      <option value="calage_machine">Calage machine</option>
+                      <option value="chute_de_coupe">Chute de coupe / Massicot</option>
+                      <option value="erreur_impression">Erreur / Défaut impression</option>
+                      <option value="autre">Autre</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Form Footer */}
@@ -792,14 +850,20 @@ function TransformationsManagement() {
                     <span className="text-gray-500">Article:</span> <span className="font-medium text-gray-900">{selectedTransformation.inputItem?.name}</span>
                   </div>
                   <div>
-                    <span className="text-gray-500">Quantité:</span> <span className="font-bold text-gray-900">{selectedTransformation.input_quantity}</span>
+                    <span className="text-gray-500">Quantité:</span> <span className="font-bold text-gray-900">{parseFloat(selectedTransformation.input_quantity)}</span>
                   </div>
                   <div>
                     <span className="text-gray-500">Lot:</span> <span className="font-medium text-gray-900">{selectedTransformation.inputLot?.lot_number}</span>
                   </div>
                   <div>
-                    <span className="text-gray-500">Emplacement source:</span> <span className="font-medium text-gray-900">{selectedTransformation.fromLocation?.name}</span>
+                    <span className="text-gray-500">Origine:</span> <span className="font-medium text-gray-900">{selectedTransformation.fromLocation?.name}</span>
                   </div>
+                  {parseFloat(selectedTransformation.waste_quantity) > 0 && (
+                    <div className="col-span-2 text-xs bg-amber-50 border border-amber-200 p-2 rounded text-amber-900 mt-1">
+                      ⚠️ <span className="font-semibold">Gâche enregistrée:</span> {parseFloat(selectedTransformation.waste_quantity)} unités 
+                      {selectedTransformation.waste_reason && ` (${selectedTransformation.waste_reason.replace('_', ' ')})`}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -822,7 +886,7 @@ function TransformationsManagement() {
                     <span className="text-blue-600">Article:</span> <span className="font-medium text-blue-900">{selectedTransformation.outputItem?.name}</span>
                   </div>
                   <div>
-                    <span className="text-blue-600">Quantité attendue:</span> <span className="font-bold text-blue-900">{selectedTransformation.output_quantity}</span>
+                    <span className="text-blue-600">Quantité attendue:</span> <span className="font-bold text-blue-900">{parseFloat(selectedTransformation.output_quantity)}</span>
                   </div>
                   <div>
                     <span className="text-blue-600">Emplacement de stockage:</span> <span className="font-medium text-blue-900">{selectedTransformation.toLocation?.name}</span>
@@ -869,13 +933,19 @@ function TransformationsManagement() {
             <p className="text-sm text-gray-600 mb-4">
               Veuillez saisir votre nom pour valider l'exécution. Cette action va consommer les matières premières et générer le lot fini dans le stock.
             </p>
-            <input
-              type="text"
-              placeholder="Votre nom ou identifiant..."
+            <select
+              required
               value={completerName}
               onChange={(e) => setCompleterName(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg text-sm mb-4 focus:ring-2 focus:ring-[#00AABB] focus:border-transparent outline-none"
-            />
+              className="w-full px-3 py-2 border rounded-lg text-sm mb-4 focus:ring-2 focus:ring-[#00AABB] focus:border-transparent outline-none bg-white"
+            >
+              <option value="">Sélectionner un utilisateur Atelier *</option>
+              {atelierUsers.map((u) => (
+                <option key={u.id} value={u.username}>
+                  {u.username} ({u.role})
+                </option>
+              ))}
+            </select>
             <div className="flex justify-end gap-2 text-sm font-semibold">
               <button
                 onClick={() => {

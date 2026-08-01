@@ -46,6 +46,12 @@ module.exports = (sequelize) => {
       foreignKey: 'to_location',
       as: 'incomingTransactions'
     });
+
+    // Location has many item locations
+    Location.hasMany(models.ItemLocation, {
+      foreignKey: 'location_id',
+      as: 'itemLocations'
+    });
   };
 
   return Location;

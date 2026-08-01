@@ -528,6 +528,8 @@ export const stockAPI = {
     return apiCall(`/items${queryString ? '?' + queryString : ''}`);
   },
   
+  getStockAlerts: () => apiCall('/items/alerts'),
+  
   getItem: (id) => apiCall(`/items/${id}`),
   
   createItem: (itemData) => apiCall('/items', {
@@ -542,6 +544,11 @@ export const stockAPI = {
   
   deleteItem: (id) => apiCall(`/items/${id}`, {
     method: 'DELETE',
+  }),
+
+  updateMinimumQuantity: (itemId, locationId, minimumQuantity) => apiCall(`/items/${itemId}/locations/${locationId}/minimum-quantity`, {
+    method: 'PUT',
+    body: JSON.stringify({ minimum_quantity: minimumQuantity }),
   }),
 
   // Locations
@@ -584,10 +591,6 @@ export const stockAPI = {
   
   getLot: (id) => apiCall(`/lots/${id}`),
   
-  createLot: (lotData) => apiCall('/lots', {
-    method: 'POST',
-    body: JSON.stringify(lotData),
-  }),
   
   updateLot: (id, lotData) => apiCall(`/lots/${id}`, {
     method: 'PUT',
@@ -648,6 +651,11 @@ export const stockAPI = {
     body: JSON.stringify(transactionData),
   }),
   
+  createBatchTransaction: (batchData) => apiCall('/transactions/batch', {
+    method: 'POST',
+    body: JSON.stringify(batchData),
+  }),
+  
   updateTransaction: (id, transactionData) => apiCall(`/transactions/${id}`, {
     method: 'PUT',
     body: JSON.stringify(transactionData),
@@ -657,10 +665,15 @@ export const stockAPI = {
     method: 'DELETE',
   }),
 
-  validateTransaction: (id, validated_by) => apiCall(`/transactions/${id}/validate`, {
-    method: 'PATCH',
-    body: JSON.stringify({ validated_by }),
-  }),
+  validateTransaction: (id, validationData) => {
+    const payload = typeof validationData === 'string'
+      ? { validated_by: validationData }
+      : (validationData || {});
+    return apiCall(`/transactions/${id}/validate`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
 
   cancelTransaction: (id) => apiCall(`/transactions/${id}/cancel`, {
     method: 'PATCH',
@@ -699,4 +712,16 @@ export const transformationAPI = {
   }),
 }
 
-export default { apiCall, authAPI, userAPI, orderAPI, productAPI, clientAPI, finitionAPI, statisticsAPI, exportAPI, atelierTaskAPI, supplierAPI, stockAPI, transformationAPI }
+// Unit API calls
+export const unitAPI = {
+  getUnits: () => apiCall('/units'),
+  createUnit: (data) => apiCall('/units', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  deleteUnit: (id) => apiCall(`/units/${id}`, {
+    method: 'DELETE',
+  }),
+}
+
+export default { apiCall, authAPI, userAPI, orderAPI, productAPI, clientAPI, finitionAPI, statisticsAPI, exportAPI, atelierTaskAPI, supplierAPI, stockAPI, transformationAPI, unitAPI }
