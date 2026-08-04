@@ -8,7 +8,7 @@ on:
 
 jobs:
   verify:
-    name: 1. Install & Verify Dependencies
+    name: 1. Install & Verify Code Integrity
     runs-on: ubuntu-latest
 
     steps:
@@ -23,6 +23,10 @@ jobs:
       - name: Install All Dependencies
         run: |
           npm run install:all
+
+      - name: Verify Frontend Build (Compile Check)
+        run: |
+          npm run build
 
   deploy-to-vps:
     name: 2. Deploy via SSH over Tailscale (PM2 Reload)
@@ -55,9 +59,13 @@ jobs:
             echo "📦 Installing updated npm packages..."
             npm run install:all
 
-            echo "🔄 Reloading PM2 processes..."
-            if pm2 list | grep -q "server"; then
-              pm2 reload server --update-env || pm2 restart server --update-env
+            echo "🗄️ Running database migrations..."
+            cd server && npm run migrate && cd ..
+
+            echo "🔄 Reloading PM2 processes (numerik-server & numerik-client)..."
+            if pm2 list | grep -q "numerik-server"; then
+              pm2 reload numerik-server --update-env || pm2 restart numerik-server --update-env
+              pm2 reload numerik-client --update-env || pm2 restart numerik-client --update-env
             else
               pm2 reload all --update-env || pm2 restart all --update-env
             fi

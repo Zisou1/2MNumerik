@@ -1,19 +1,18 @@
 // Utility functions for API calls with HTTP-only cookies
 
-// Dynamic API base URL that works for both localhost and network access
+// Dynamic API base URL that works for localhost, Tailscale VPN, and network access
 const getApiBaseUrl = () => {
-  // Check if there's an environment variable set (useful for production/staging)
+  // Priority 1: Dynamic hostname (Tailscale, local network, production)
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return `${window.location.protocol}//${window.location.hostname}:3001/api`
+  }
+  
+  // Priority 2: Explicit env override (useful for custom setups)
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL
   }
   
-  // If running in development and accessing from a different device on the network
-  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    // Use the same hostname as the frontend but with port 3001
-    return `http://${window.location.hostname}:3001/api`
-  }
-  
-  // Default to localhost for local development
+  // Priority 3: Default to localhost for local development
   return 'http://localhost:3001/api'
 }
 
