@@ -25,12 +25,19 @@ jobs:
           npm run install:all
 
   deploy-to-vps:
-    name: 2. Deploy via SSH (PM2 Reload)
+    name: 2. Deploy via SSH over Tailscale (PM2 Reload)
     needs: verify
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
 
     steps:
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
       - name: SSH and Update Server
         uses: appleboy/ssh-action@v1.0.3
         with:
