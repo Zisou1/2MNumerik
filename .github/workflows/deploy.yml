@@ -1,0 +1,61 @@
+name: Deploy 2MNumerik to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: 1. Install & Verify Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install All Dependencies
+        run: |
+          npm run install:all
+
+  deploy-to-vps:
+    name: 2. Deploy via SSH (PM2 Reload)
+    needs: verify
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: SSH and Update Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Moving to project directory..."
+            cd ${{ secrets.TARGET_DIR }}
+
+            echo "📥 Fetching latest commits from GitHub..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "📦 Installing updated npm packages..."
+            npm run install:all
+
+            echo "🔄 Reloading PM2 processes..."
+            if pm2 list | grep -q "server"; then
+              pm2 reload server --update-env || pm2 restart server --update-env
+            else
+              pm2 reload all --update-env || pm2 restart all --update-env
+            fi
+
+            echo "✅ Deployment successful!"
