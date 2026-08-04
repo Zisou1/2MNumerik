@@ -16,7 +16,10 @@ import {
   Tooltip,
   Badge,
   Collapse,
-  Pagination
+  Pagination,
+  Modal,
+  Descriptions,
+  ConfigProvider
 } from 'antd';
 import {
   SearchOutlined,
@@ -43,11 +46,15 @@ const AuditLogsPage = () => {
   const [pageSize, setPageSize] = useState(25);
   const [totalCount, setTotalCount] = useState(0);
   
+  // Modal state
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   // Filters
   const [filters, setFilters] = useState({
-    action: '',
-    table_name: '',
-    user_id: '',
+    action: undefined,
+    table_name: undefined,
+    user_id: undefined,
     date_from: null,
     date_to: null,
     search: ''
@@ -56,6 +63,7 @@ const AuditLogsPage = () => {
   const actionColors = {
     LOGIN: 'success',
     LOGOUT: 'processing',
+    LOGIN_FAILED: 'error',
     CREATE: 'default',
     UPDATE: 'warning',
     DELETE: 'error'
@@ -113,9 +121,9 @@ const AuditLogsPage = () => {
 
   const clearFilters = () => {
     setFilters({
-      action: '',
-      table_name: '',
-      user_id: '',
+      action: undefined,
+      table_name: undefined,
+      user_id: undefined,
       date_from: null,
       date_to: null,
       search: ''
@@ -149,6 +157,41 @@ const AuditLogsPage = () => {
     } catch {
       return info.toString();
     }
+  };
+
+  const handleViewDetails = (record) => {
+    setSelectedLog(record);
+    setIsModalOpen(true);
+  };
+
+  const handleExportCSV = () => {
+    if (!auditLogs || auditLogs.length === 0) return;
+    
+    const headers = ['ID', 'Date/Heure', 'Utilisateur', 'Role', 'Action', 'Table', 'Enregistrement', 'IP', 'User Agent', 'Informations'];
+    
+    const rows = auditLogs.map(log => [
+      log.id,
+      dayjs(log.created_at).format('YYYY-MM-DD HH:mm:ss'),
+      log.user ? log.user.username : 'Système',
+      log.user ? log.user.role : '-',
+      log.action,
+      log.table_name || '-',
+      log.record_id || '-',
+      log.ip_address || '-',
+      `"${(log.user_agent || '').replace(/"/g, '""')}"`,
+      `"${(formatAdditionalInfo(log.additional_info) || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' 
+      + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `audit_logs_${dayjs().format('YYYY-MM-DD_HHmmss')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const columns = [
@@ -186,7 +229,7 @@ const AuditLogsPage = () => {
       title: 'Action',
       dataIndex: 'action',
       key: 'action',
-      width: 100,
+      width: 130,
       render: (action) => (
         <Tag color={actionColors[action] || 'default'}>
           {action}
@@ -238,10 +281,7 @@ const AuditLogsPage = () => {
           <Button 
             size="small" 
             icon={<EyeOutlined />}
-            onClick={() => {
-              // TODO: Implement view details modal
-              console.log('View details for:', record.id);
-            }}
+            onClick={() => handleViewDetails(record)}
           />
         </Tooltip>
       ),
@@ -249,160 +289,244 @@ const AuditLogsPage = () => {
   ];
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <Title level={2}>Logs d'Audit</Title>
-        <Text type="secondary">
-          Historique de toutes les actions effectuées sur le système
-        </Text>
-      </div>
-
-      {error && (
-        <Alert
-          message={error}
-          type="error"
-          showIcon
-          className="mb-4"
-        />
-      )}
-
-      {/* Filters */}
-      <Card className="mb-6">
-        <Collapse defaultActiveKey={['1']}>
-          <Panel 
-            header={
-              <div className="flex items-center">
-                <FilterOutlined className="mr-2" />
-                Filtres
-              </div>
-            } 
-            key="1"
-          >
-            <Row gutter={[16, 16]}>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <Search
-                  placeholder="Recherche..."
-                  value={filters.search}
-                  onChange={(e) => handleFilterChange('search', e.target.value)}
-                  onSearch={applyFilters}
-                  enterButton
-                />
-              </Col>
-              
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <Select
-                  placeholder="Action"
-                  value={filters.action}
-                  onChange={(value) => handleFilterChange('action', value)}
-                  className="w-full"
-                  allowClear
-                >
-                  <Option value="LOGIN">LOGIN</Option>
-                  <Option value="LOGOUT">LOGOUT</Option>
-                  <Option value="CREATE">CREATE</Option>
-                  <Option value="UPDATE">UPDATE</Option>
-                  <Option value="DELETE">DELETE</Option>
-                </Select>
-              </Col>
-
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <Select
-                  placeholder="Table"
-                  value={filters.table_name}
-                  onChange={(value) => handleFilterChange('table_name', value)}
-                  className="w-full"
-                  allowClear
-                >
-                  <Option value="orders">Commandes</Option>
-                  <Option value="users">Utilisateurs</Option>
-                  <Option value="clients">Clients</Option>
-                  <Option value="products">Produits</Option>
-                </Select>
-              </Col>
-
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <RangePicker
-                  value={filters.date_from && filters.date_to ? [filters.date_from, filters.date_to] : null}
-                  onChange={handleDateRangeChange}
-                  className="w-full"
-                  placeholder={['Date début', 'Date fin']}
-                />
-              </Col>
-            </Row>
-
-            <Row className="mt-4">
-              <Col>
-                <Space>
-                  <Button 
-                    type="primary" 
-                    icon={<SearchOutlined />}
-                    onClick={applyFilters}
-                  >
-                    Appliquer
-                  </Button>
-                  <Button 
-                    icon={<ClearOutlined />}
-                    onClick={clearFilters}
-                  >
-                    Effacer
-                  </Button>
-                  <Button 
-                    icon={<ReloadOutlined />}
-                    onClick={fetchAuditLogs}
-                  >
-                    Actualiser
-                  </Button>
-                  <Button 
-                    icon={<DownloadOutlined />}
-                    onClick={() => {
-                      // TODO: Implement export
-                      console.log('Export logs');
-                    }}
-                  >
-                    Exporter
-                  </Button>
-                </Space>
-              </Col>
-            </Row>
-          </Panel>
-        </Collapse>
-      </Card>
-
-      {/* Table */}
-      <Card>
-        <Table
-          columns={columns}
-          dataSource={auditLogs}
-          loading={loading}
-          pagination={false}
-          rowKey="id"
-          scroll={{ x: 'max-content' }}
-          locale={{
-            emptyText: loading ? <Spin /> : 'Aucun log d\'audit trouvé'
-          }}
-        />
-        
-        <div className="flex justify-end mt-4">
-          <Pagination
-            current={page}
-            pageSize={pageSize}
-            total={totalCount}
-            showSizeChanger
-            showQuickJumper
-            showTotal={(total, range) =>
-              `${range[0]}-${range[1]} sur ${total} éléments`
-            }
-            onChange={(newPage, newPageSize) => {
-              setPage(newPage);
-              if (newPageSize !== pageSize) {
-                setPageSize(newPageSize);
-              }
-            }}
-            pageSizeOptions={['10', '25', '50', '100']}
-          />
+    <ConfigProvider theme={{ token: { colorPrimary: '#00AABB' } }}>
+      <div className="p-6">
+        <div className="mb-6">
+          <Title level={2}>Logs d'Audit</Title>
+          <Text type="secondary">
+            Historique de toutes les actions effectuées sur le système
+          </Text>
         </div>
-      </Card>
-    </div>
+
+        {error && (
+          <Alert
+            message={error}
+            type="error"
+            showIcon
+            className="mb-4"
+          />
+        )}
+
+        {/* Filters */}
+        <Card className="mb-6">
+          <Collapse defaultActiveKey={['1']}>
+            <Panel 
+              header={
+                <div className="flex items-center">
+                  <FilterOutlined className="mr-2" />
+                  Filtres
+                </div>
+              } 
+              key="1"
+            >
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12} md={8} lg={6}>
+                  <Search
+                    placeholder="Recherche..."
+                    value={filters.search}
+                    onChange={(e) => handleFilterChange('search', e.target.value)}
+                    onSearch={applyFilters}
+                    enterButton
+                  />
+                </Col>
+                
+                <Col xs={24} sm={12} md={8} lg={6}>
+                  <Select
+                    placeholder="Action"
+                    value={filters.action || undefined}
+                    onChange={(value) => handleFilterChange('action', value)}
+                    className="w-full"
+                    allowClear
+                  >
+                    <Option value="LOGIN">LOGIN</Option>
+                    <Option value="LOGOUT">LOGOUT</Option>
+                    <Option value="LOGIN_FAILED">LOGIN_FAILED</Option>
+                    <Option value="CREATE">CREATE</Option>
+                    <Option value="UPDATE">UPDATE</Option>
+                    <Option value="DELETE">DELETE</Option>
+                  </Select>
+                </Col>
+
+                <Col xs={24} sm={12} md={8} lg={6}>
+                  <Select
+                    placeholder="Table"
+                    value={filters.table_name || undefined}
+                    onChange={(value) => handleFilterChange('table_name', value)}
+                    className="w-full"
+                    allowClear
+                  >
+                    <Option value="orders">Commandes</Option>
+                    <Option value="users">Utilisateurs</Option>
+                    <Option value="clients">Clients</Option>
+                    <Option value="products">Produits</Option>
+                  </Select>
+                </Col>
+
+                <Col xs={24} sm={12} md={8} lg={6}>
+                  <RangePicker
+                    value={filters.date_from && filters.date_to ? [filters.date_from, filters.date_to] : null}
+                    onChange={handleDateRangeChange}
+                    className="w-full"
+                    placeholder={['Date début', 'Date fin']}
+                  />
+                </Col>
+              </Row>
+
+              <Row className="mt-4">
+                <Col>
+                  <Space>
+                    <Button 
+                      type="primary" 
+                      icon={<SearchOutlined />}
+                      onClick={applyFilters}
+                    >
+                      Appliquer
+                    </Button>
+                    <Button 
+                      icon={<ClearOutlined />}
+                      onClick={clearFilters}
+                    >
+                      Effacer
+                    </Button>
+                    <Button 
+                      icon={<ReloadOutlined />}
+                      onClick={fetchAuditLogs}
+                    >
+                      Actualiser
+                    </Button>
+                    <Button 
+                      icon={<DownloadOutlined />}
+                      onClick={handleExportCSV}
+                    >
+                      Exporter (CSV)
+                    </Button>
+                  </Space>
+                </Col>
+              </Row>
+            </Panel>
+          </Collapse>
+        </Card>
+
+        {/* Table */}
+        <Card>
+          <Table
+            columns={columns}
+            dataSource={auditLogs}
+            loading={loading}
+            pagination={false}
+            rowKey="id"
+            scroll={{ x: 'max-content' }}
+            locale={{
+              emptyText: loading ? <Spin /> : 'Aucun log d\'audit trouvé'
+            }}
+          />
+          
+          <div className="flex justify-end mt-4">
+            <Pagination
+              current={page}
+              pageSize={pageSize}
+              total={totalCount}
+              showSizeChanger
+              showQuickJumper
+              showTotal={(total, range) =>
+                `${range[0]}-${range[1]} sur ${total} éléments`
+              }
+              onChange={(newPage, newPageSize) => {
+                setPage(newPage);
+                if (newPageSize !== pageSize) {
+                  setPageSize(newPageSize);
+                }
+              }}
+              pageSizeOptions={['10', '25', '50', '100']}
+            />
+          </div>
+        </Card>
+
+        {/* Details Modal */}
+        <Modal
+          title={
+            <div className="flex items-center gap-2">
+              <span>Détails du Log d'Audit #{selectedLog?.id}</span>
+              {selectedLog && (
+                <Tag color={actionColors[selectedLog.action] || 'default'}>
+                  {selectedLog.action}
+                </Tag>
+              )}
+            </div>
+          }
+          open={isModalOpen}
+          onCancel={() => setIsModalOpen(false)}
+          footer={[
+            <Button key="close" type="primary" onClick={() => setIsModalOpen(false)}>
+              Fermer
+            </Button>
+          ]}
+          width={700}
+        >
+          {selectedLog && (
+            <Descriptions column={2} bordered size="small" className="mt-4">
+              <Descriptions.Item label="Date & Heure" span={2}>
+                {dayjs(selectedLog.created_at).format('DD/MM/YYYY HH:mm:ss')}
+              </Descriptions.Item>
+              <Descriptions.Item label="Utilisateur">
+                {selectedLog.user ? selectedLog.user.username : 'Système'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Rôle">
+                {selectedLog.user ? selectedLog.user.role : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Action">
+                <Tag color={actionColors[selectedLog.action] || 'default'}>
+                  {selectedLog.action}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Adresse IP">
+                <Text code>{selectedLog.ip_address || '-'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Table Affectée">
+                {selectedLog.table_name || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="ID Enregistrement">
+                {selectedLog.record_id || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="User Agent" span={2}>
+                <Text type="secondary" className="text-xs break-all">
+                  {selectedLog.user_agent || '-'}
+                </Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Informations Supplémentaires" span={2}>
+                <pre className="bg-gray-50 p-2 rounded text-xs overflow-auto max-h-40">
+                  {selectedLog.additional_info ? (
+                    typeof selectedLog.additional_info === 'string' ? (
+                      (() => {
+                        try {
+                          return JSON.stringify(JSON.parse(selectedLog.additional_info), null, 2);
+                        } catch {
+                          return selectedLog.additional_info;
+                        }
+                      })()
+                    ) : JSON.stringify(selectedLog.additional_info, null, 2)
+                  ) : '-'}
+                </pre>
+              </Descriptions.Item>
+              {selectedLog.old_values && (
+                <Descriptions.Item label="Anciennes Valeurs" span={2}>
+                  <pre className="bg-red-50 p-2 rounded text-xs text-red-700 overflow-auto max-h-40">
+                    {typeof selectedLog.old_values === 'string' ? selectedLog.old_values : JSON.stringify(selectedLog.old_values, null, 2)}
+                  </pre>
+                </Descriptions.Item>
+              )}
+              {selectedLog.new_values && (
+                <Descriptions.Item label="Nouvelles Valeurs" span={2}>
+                  <pre className="bg-green-50 p-2 rounded text-xs text-green-700 overflow-auto max-h-40">
+                    {typeof selectedLog.new_values === 'string' ? selectedLog.new_values : JSON.stringify(selectedLog.new_values, null, 2)}
+                  </pre>
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+          )}
+        </Modal>
+      </div>
+    </ConfigProvider>
   );
 };
 

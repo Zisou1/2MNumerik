@@ -723,4 +723,16 @@ export const unitAPI = {
   }),
 }
 
-export default { apiCall, authAPI, userAPI, orderAPI, productAPI, clientAPI, finitionAPI, statisticsAPI, exportAPI, atelierTaskAPI, supplierAPI, stockAPI, transformationAPI, unitAPI }
+// Audit API calls
+export const auditAPI = {
+  getLogs: (params = {}) => {
+    const queryString = Object.keys(params)
+      .filter(key => params[key] !== '' && params[key] !== null && params[key] !== undefined)
+      .map(key => `${key}=${encodeURIComponent(params[key])}`)
+      .join('&');
+    
+    return apiCall(`/audit${queryString ? '?' + queryString : ''}`);
+  }
+}
+
+export default { apiCall, authAPI, userAPI, orderAPI, productAPI, clientAPI, finitionAPI, statisticsAPI, exportAPI, atelierTaskAPI, supplierAPI, stockAPI, transformationAPI, unitAPI, auditAPI }

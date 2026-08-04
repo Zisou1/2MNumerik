@@ -39,6 +39,10 @@ const getOrder = () => {
   return models.Order;
 };
 
+const getAuditLog = () => {
+  return models.AuditLog;
+};
+
 const closeDatabase = async () => {
   if (sequelize) {
     await sequelize.close();
@@ -51,5 +55,6 @@ module.exports = {
   getSequelize,
   getUser,
   getOrder,
+  getAuditLog,
   closeDatabase
 };

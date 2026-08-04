@@ -23,6 +23,7 @@ const transactionRoutes = require('./routes/transactionRoutes');
 const lotRoutes = require('./routes/lots');
 const transformationRoutes = require('./routes/transformationRoutes');
 const unitRoutes = require('./routes/unitRoutes');
+const auditRoutes = require('./routes/auditRoutes');
 const { startReservationCleanupJob } = require('./services/stockReservationCleanup');
 
 const app = express();
@@ -206,6 +207,7 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/lots', lotRoutes);
 app.use('/api/transformations', transformationRoutes);
 app.use('/api/units', unitRoutes);
+app.use('/api/audit', auditRoutes);
 
 // Initialize database and start server
 const startServer = async () => {

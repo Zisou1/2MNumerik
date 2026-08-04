@@ -18,6 +18,7 @@ import DashboardPageClean from './pages/DashboardPageClean'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import SettingsPage from './pages/SettingsPage'
 import StockManagementPage from './pages/StockManagementPage'
+import AuditLogsPage from './pages/AuditLogsPage'
 
 
 // Separate component to use auth context
@@ -127,6 +128,16 @@ function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={['admin']}>
               <SettingsPage />
+            </ProtectedRoute>
+          } 
+        />
+        
+        {/* Admin-only audit logs route */}
+        <Route 
+          path="audit-logs" 
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AuditLogsPage />
             </ProtectedRoute>
           } 
         />
